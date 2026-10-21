@@ -1,0 +1,817 @@
+1
+
+
+
+
+Chapter 18
+# Phase 3 Capstone: CLI To-Do List
+# Combines: functions, file handling, error handling, comprehensions,
+# and loops - a real command-line tool you can actually use.
+
+
+# --- Step 1 ---
+# Write a function load_tasks() that tries to open "tasks.txt" and
+# read it into a list (one line per task, strip newline characters).
+# If the file doesn't exist yet, catch FileNotFoundError and return
+# an empty list [] instead of crashing.
+#
+# Hint:
+# def load_tasks():
+#     try:
+#         with open("tasks.txt", "r") as f:
+#             return [line.strip() for line in f]
+#     except FileNotFoundError:
+#         return []
+
+
+
+
+# --- Step 2 ---
+# Write a function save_tasks(tasks) that writes the list of tasks
+# back to "tasks.txt", one per line.
+#
+# Hint:
+# def save_tasks(tasks):
+#     with open("tasks.txt", "w") as f:
+#         for task in tasks:
+#             f.write(task + "\n")
+
+
+
+
+# --- Step 3 ---
+# Write a function add_task(tasks, task) that appends task to the
+# tasks list, then calls save_tasks(tasks).
+
+
+
+
+# --- Step 4 ---
+# Write a function list_tasks(tasks) that prints each task with a
+# number in front (1, 2, 3...) using enumerate, like this:
+#
+# for i, task in enumerate(tasks, start=1):
+#     print(i, task)
+#
+# (enumerate gives you both a position number and the item, together,
+# in one loop - start=1 means counting starts at 1, not 0)
+
+
+
+
+# --- Step 5: put it together ---
+# 1. tasks = load_tasks()
+# 2. add_task(tasks, "Learn Python")
+# 3. add_task(tasks, "Build a CLI tool")
+# 4. list_tasks(tasks)
+# 5. Run the file TWICE. The second time, load_tasks() should already
+#    find your saved tasks from the first run in tasks.txt.
+
+
+def load_tasks():
+    try:
+        with open("task.txt", "r") as f:
+            return[line.strip() for line in f]
+    except FileNotFoundError:
+        return []
+
+
+def save_tasks(tasks):
+    with open("task.txt", "w") as f:
+        for task in tasks:
+            f.write(task + "\n")
+
+
+def add_task(tasks, task):
+    tasks.append(task)
+    save_tasks(tasks)
+
+
+def list_tasks(tasks):
+    for i, task in enumerate(tasks, start=1):
+        print(i, task)
+
+
+tasks = load_tasks()
+add_task(tasks, "Learn Python")
+add_task(tasks, "Build a CLI tool")
+list_tasks(tasks)
+
+
+ Chapter 18 b
+
+"""
+LESSON 18: SQL Capstone
+(final lesson of the SQL course -- combines everything from 12-17)
+
+
+A menu-driven reporting tool over your people/orders/wallets data.
+Every option below reuses a concept you already built:
+    1. JOIN + GROUP BY + aggregate      (lesson 12, 14)
+    2. JOIN + WHERE with a parameter    (lesson 14)
+    3. ORDER BY + LIMIT                 (lesson 13)
+    4. LEFT JOIN + WHERE ... IS NULL    (lesson 14's "superpower")
+No new SQL concepts here -- this is about combining what you know.
+"""
+
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+
+
+def report_people_totals():
+    print("\n--- People + order count + total spent ---")
+    cursor.execute("""
+    SELECT people.name,
+           COUNT(orders.id) AS num_orders,
+           COALESCE(SUM(orders.price), 0) AS total_spent
+    FROM people
+    LEFT JOIN orders ON orders.person_id = people.id
+    GROUP BY people.id
+    ORDER BY total_spent DESC;
+    """)
+    for name, num_orders, total_spent in cursor.fetchall():
+        print(f"  {name}: {num_orders} order(s), ${total_spent:.2f} total")
+
+
+
+
+def report_orders_by_city():
+    city = input("City to filter by: ")
+    print(f"\n--- Orders placed by people in {city} ---")
+    cursor.execute("""
+    SELECT people.name, orders.product, orders.price
+    FROM orders
+    JOIN people ON orders.person_id = people.id
+    WHERE people.city = ?;
+    """, (city,))
+    rows = cursor.fetchall()
+    if not rows:
+        print(f"  No orders found for city '{city}'.")
+    for name, product, price in rows:
+        print(f"  {name} bought {product} for ${price:.2f}")
+
+
+
+
+def report_top_orders():
+    n = int(input("How many top orders to show? "))
+    print(f"\n--- Top {n} most expensive orders ---")
+    cursor.execute("SELECT product, price FROM orders ORDER BY price DESC LIMIT ?;", (n,))
+    for product, price in cursor.fetchall():
+        print(f"  {product}: ${price:.2f}")
+
+
+
+
+def report_people_no_orders():
+    print("\n--- People who have never ordered anything ---")
+    cursor.execute("""
+    SELECT people.name
+    FROM people
+    LEFT JOIN orders ON orders.person_id = people.id
+    WHERE orders.id IS NULL;
+    """)
+    rows = cursor.fetchall()
+    if not rows:
+        print("  Everyone has ordered at least once.")
+    for (name,) in rows:
+        print(f"  {name}")
+
+
+def report_avg_per_city():
+    print("\n--- Average order price oer city ---")
+    cursor.execute("""
+    SELECT people.city,
+           AVG(orders.price) AS avg_price
+    FROM orders
+    LEFT JOIN people ON orders.person_id = people.id
+    GROUP BY people.city
+    ORDER BY avg_price DESC;
+    """)
+    rows = cursor.fetchall()
+    if not rows:
+        print(" No orders found.")
+    for city, avg_price in rows:
+        print(f" {city}: ${avg_price:.2f}")
+
+
+def show_menu():
+    print("\n=== SQL CAPSTONE REPORTS ===")
+    print("1. People + order count + total spent")
+    print("2. Orders by city")
+    print("3. Top N most expensive orders")
+    print("4. People with no orders")
+    print("5. Average per city")
+    print("6. Exit")
+
+
+
+
+
+
+while True:
+    show_menu()
+    choice = input("Choose an option: ")
+    if choice == "1":
+        report_people_totals()
+    elif choice == "2":
+        report_orders_by_city()
+    elif choice == "3":
+        report_top_orders()
+    elif choice == "4":
+        report_people_no_orders()
+    elif choice == "5":
+        report_avg_per_city()
+    elif choice == "6":
+        print("Goodbye.")
+        break
+    else:
+        print("Invalid choice.")
+
+
+conn.close()
+
+
+# --- YOUR TURN (final exercise of the SQL course) ---
+# Done above: report_avg_per_city() is wired in as option 5, and option 6
+# exits the loop.
+
+
+
+
+
+
+Chapter 19 is just the sql connection
+
+import sqlite3
+conn = sqlite3.connect("app.db")
+cursor =conn.cursor()
+
+
+
+
+20.
+
+"""
+LESSON 20: JSON Basics
+(Phase 4 resumes here, after the SQL capstone course)
+
+
+JSON (JavaScript Object Notation) is a plain TEXT format for representing
+data -- it's how almost every API on the internet sends data back and
+forth, and it's also a common way to save structured data to a file
+without needing a database.
+
+
+JSON looks a lot like Python dicts/lists, but it's not the same thing --
+it's just TEXT that follows specific rules. Python gives you the `json`
+module to convert between "a Python object in memory" and "JSON text":
+
+
+    json.dumps(obj)   -> Python object  TO   a JSON string   ("dump s"tring)
+    json.loads(text)  -> JSON string    TO   a Python object ("load s"tring)
+    json.dump(obj, f)  -> Python object  TO   a JSON file
+    json.load(f)       -> JSON file     TO   a Python object
+
+
+Notice the pattern: the ones with "s" (dumps/loads) work with STRINGS.
+The ones without "s" (dump/load) work with FILES directly.
+
+
+A few things that DON'T carry over directly from Python to JSON:
+    Python True/False   -> JSON true/false  (lowercase, no quotes)
+    Python None          -> JSON null
+    Python tuple          -> JSON has no tuple type, becomes a list
+"""
+
+
+import json
+
+
+# --- 1. dumps: Python dict -> JSON string ---
+person = {"name": "Roy", "age": 44, "city": "Dallas", "is_student": True}
+
+
+json_string = json.dumps(person)
+print("---json.dumps(compact)---")
+print(json_string)
+print(type(json_string)) # <class 'str'> -- it's just TEXT now, not a dict anymore
+
+
+
+
+#indent= makes it human readable (great for debugging / config files)
+pretty = json.dumps(person, indent=2)
+print("\n ---json.dumps(indent=2)---")
+print(pretty)
+
+
+# ---2. loads JSON string -> Python oject ---
+raw_text = '{"product": "laptop", "price": 1200.0, "in_stock": true}'
+order= json.loads(raw_text)
+print("\n --- json.loads ---")
+print(order)
+print(type(order))  # <class 'dict'> ackto real Python dict
+print(order["price"]) # you can use it like any normal dict
+
+
+# --- 3. dump: Python object -> JSON FILE ---
+people_data = [
+    {"name": "KING", "age": 28, "city": "Dallas"},
+    {"name": "SOLOMON", "age": 33, "city": "Houston"},
+    {"name": "JAMES", "age": 42, "city": "Houston"},
+    {"name": "ELI", "age": 42, "city": "Austin"}
+]
+
+
+
+
+with open("people.json", "w") as f:
+  json.dump(people_data,f, indent=2)
+print("\nWrote people.json")
+
+
+
+
+# 4. load: JSON FILE -> Python object---
+with open("people.json", "r") as f:
+  loaded_people = json.load(f)
+
+
+print("\n--- Loaded back from people.json ---")
+for p in loaded_people:
+  print(f" {p['name']}({p['age']})-{p['city']}")
+     
+# --- YOUR TURN ---
+# 1. Make your own dict called `wallet` with keys "owner", "balance", and
+#    "active" (a True/False value). Print it with json.dumps(indent=2).
+# 2. Write `wallet` to a file called wallet.json using json.dump.
+# 3. Read wallet.json back into a new variable and print just the balance.
+
+
+
+
+
+21
+
+"""
+LESSON 21: The requests library -- GET requests
+
+
+Everything you've done so far (people.json, wallet.json) lived only on
+your own computer. An API lets your program ask ANOTHER computer,
+somewhere else on the internet, for data -- and that data usually comes
+back as JSON, which is exactly why lesson 20 came first.
+
+
+`requests` is the standard third-party library for making HTTP calls
+from Python. It's not built-in like `json` or `sqlite3` -- if this
+import fails, run this first in your activated venv:
+
+
+    pip install requests
+
+
+A GET request means "give me data" (as opposed to POST, which means
+"here's data, save it" -- that's lesson 22).
+
+
+Every response you get back has:
+    response.status_code  -> a number telling you what happened
+                              200 = OK, 404 = not found, 500 = server broke
+    response.json()       -> if the body is JSON text, parse it into a
+                              Python dict/list (this is just json.loads
+                              m
+                              under the hood -- same concept as lesson 20)
+
+
+We'll use jsonplaceholder.typicode.com -- a free fake API made
+specifically for practicing this exact thing, no API key needed.
+"""
+
+
+import requests
+
+
+# --- 1. A basic GET request ---
+response = requests.get("https://jsonplaceholder.typicode.com/posts/1")
+
+
+print("--- Basic GET ---")
+print("Status code:", response.status_code)
+print("Type of response.json():", type(response.json()))
+print(response.json())
+
+
+# --- 2. Using the parsed data like any Python dict ---
+post = response.json()
+print("\n--- Reading fields out of it ---")
+print("Title:", post["title"])
+print("Body:", post["body"])
+
+
+# --- 3. What a 404 looks like (asking for something that doesn't exist) ---
+bad_response = requests.get("https://jsonplaceholder.typicode.com/posts/99999")
+print("\n--- Requesting a post that doesn't exist ---")
+print("Status code:", bad_response.status_code)
+print("Body:", bad_response.json())  # jsonplaceholder returns {} for missing post
+
+
+# --- 4. Always check status_code before trusting the data ---
+if response.status_code == 200:
+    print("\nRequest succeeded, safe to use response.json()")
+else:
+    print("\nRequest failed, don't trust the body")
+
+
+# --- YOUR TURN ---
+# 1. GET https://jsonplaceholder.typicode.com/users/3 and print that
+#    user's "name" and "email" fields.
+# 2. GET https://jsonplaceholder.typicode.com/posts (no /1 at the end --
+#    this returns a LIST of 100 posts, not a single dict). Print how many
+#    posts came back (hint: len()) and print just the first post's title.
+
+
+# 1. GET  https://jsonplaceholder.typicode.com/users/3
+user_response = requests.get("https://jsonplaceholder.typicode.com/users/3")
+
+
+("\n---User 3 ---")
+("Status code:", user_response.status_code)
+
+
+if user_response.status_code == 200:
+    user = user_response.json()
+    print("Name:", user["name"])
+    print("Email:", user["email"])
+
+
+else:
+    print("Request failed")
+
+
+# 2. GET https://jsonplaceholder.typicode.com/post
+post_response = requests.get("https://jsonplaceholder.typicode.com/post")
+
+
+print("\n --- ALL Post ---")
+print("Status:", post_response.status_code)
+
+
+if post_response.status_code == 200:
+    post = post_response.json()
+    print("Number of post:", len(post))
+    print("First post title:", post[0]["title"])
+else:
+    print("Request failed")
+
+22..
+
+"""
+LESSON 22: POST requests, headers, query params
+
+
+Lesson 21 was all GET -- "give me data." POST means "here's data, go
+do something with it" (usually: save it). Every time you sign up for
+a site, submit a form, or send a chat message to an API, that's a POST.
+
+
+Three new ideas this lesson:
+
+
+1. REQUEST BODY -- the data you're SENDING, not receiving. You pass it
+   as a Python dict to `json=...` and `requests` converts it to JSON
+   text for you automatically (same conversion as json.dumps, just done
+   under the hood).
+
+
+2. HEADERS -- extra metadata attached to a request, separate from the
+   body. Think of it like the outside of an envelope vs. the letter
+   inside. Common headers: "Content-Type" (what format the body is in),
+   "Authorization" (proving who you are -- lesson 23 goes deeper here).
+
+
+3. QUERY PARAMS -- extra filters tacked onto a GET url, after a `?`,
+   like `?userId=1`. Instead of building that string by hand, you pass
+   a dict to `params=...` and requests builds the url correctly for you.
+"""
+
+
+
+
+import requests
+
+
+# 1. A basic POST: sending a new "post" to the fake API---
+
+
+new_post = {
+    "title": "Learning APIs",
+    "body": "POST requests send data instead of just asking for it.",
+    "userId": 1,
+}
+
+
+
+
+response = requests.post(
+    "https://jsonplaceholder.typicode.com/posts",
+    json=new_post,
+)
+
+
+print("---POST result---")
+print("Status code:", response.status_code) # 201 = "Created"
+print(response.json()) # the fake API echoes back what you sent, plus a new "id"
+
+
+
+
+#---2. Headers ---
+print("\n---Headers we sent---")
+print(response.request.headers)
+# notice "Content- Type: application/json" is already set for you --
+#that happened automatically because we used json=nwe_post
+
+
+# --- 3. Query params on a GET ---
+#Without params=, you'd have to hand-build tis url yourself:
+# "https://jsonplaceholder.typicode.com/post?userId=1"
+filtered = requests.get(
+    "https://jsonplaceholder.typicode.com/posts",
+    params={"userId":1},
+)
+print("\n---Query param GET---")
+print("Actual URL requests built:", filtered.url)
+print("Number of posts by userId 1:", len(filtered.json()))
+
+
+# --- YOUR TURN ---
+# 1. Build your own new_comment dict with keys "postId" (use 1),
+#    "name", "email", and "body". POST it to
+#    https://jsonplaceholder.typicode.com/comments and print the
+#    status code and the response JSON.
+# 2. Use params= to GET https://jsonplaceholder.typicode.com/comments
+#    filtered to postId=1. Print how many comments came back.
+
+
+import requests
+
+
+post_litty = {
+    "title": "SUPER_THOWED.com",
+    "body": "I've comme to wreck havoc on the strong, brave, meek and weak!",
+    "postId":1,
+}
+
+
+response = requests.post(
+    "https://jsonplaceholder.typicode.com/comments",
+    json=post_litty
+)
+
+
+print(f"\n---Post Results---")
+print("Status code:", response.status_code)
+print(response.json())
+
+
+print("\n---Headers We Sent---")
+
+
+filtered = requests.get(
+    "https://jsonplaceholder.typicode.com/comments",
+    params={"postId":1},
+)
+
+
+print("\n---Query Param GET---")
+print("Atual URL requests built:", filtered.url)
+print("Number of comments by postId 1:", len(filtered.json()))
+
+
+23.
+
+"""
+LESSON 23: Environment variables, .env files, and auth headers
+
+
+Real APIs almost never let just anyone hit them for free -- they need
+to know WHO is asking. That's "authentication," and the most common
+way to prove who you are is an API KEY: a secret string the API gave
+you when you signed up, that you attach to every request.
+
+
+The #1 rule with API keys: NEVER type them directly into your .py
+file. If that file ever gets pushed to GitHub, your key is now public
+and anyone can use it (and rack up charges on YOUR account). Instead,
+keys live in ENVIRONMENT VARIABLES -- values that live outside your
+code, in the operating system or a separate file, that your code reads
+at runtime.
+
+
+Two ways to read them:
+
+
+1. `os.getenv("SOME_NAME")` -- reads a variable that's already set in
+   your system/terminal session.
+
+
+2. A `.env` file + the `python-dotenv` package -- a plain text file
+   (never committed to git) holding KEY=VALUE pairs, which
+   `load_dotenv()` reads and injects into `os.environ` for you.
+
+
+   pip install python-dotenv
+
+
+Once you HAVE the key, you attach it to a request via a HEADER (recall
+lesson 22 -- headers are the envelope, not the letter inside). The most
+common pattern is a "Bearer token":
+
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+"""
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+# --- 1. Reading an env var that's already set (no .env needed) ---
+# This one probably won't exist on your machine -- that's expected,
+# getenv() returns None instead of crashing when a variable is missing.
+path_var = os.getenv("PATH")
+print("--- os.getenv on something that DOES exist ---")
+print("PATH is set:", path_var is not None)
+
+
+missing_var = os.getenv("SOME_KEY_THAT_DOES_NOT_EXIST")
+print("\n--- os.getenv on something that DOESN'T exist ---")
+print("Missing var returns:", missing_var)
+
+
+# --- 2. Loading a .env file ---
+# Create a file named exactly ".env" (no filename before the dot) in
+# this same folder, containing one line:
+#     MY_API_KEY=demo-secret-12345
+# load_dotenv() finds that file and loads its contents into os.environ.
+load_dotenv()
+api_key = os.getenv("MY_API_KEY")
+print("\n--- Loaded from .env ---")
+print("MY_API_KEY:", api_key)
+
+
+# --- 3. Using the key in a request header (Bearer token pattern) ---
+# httpbin.org/bearer is a free test endpoint made specifically for
+# practicing this -- it checks for an Authorization header and tells
+# you whether it was accepted.
+if api_key:
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get("https://httpbin.org/bearer", headers=headers)
+    print("\n--- Sending the key as a Bearer token ---")
+    print("Status code:", response.status_code)
+    print(response.json())
+else:
+    print("\nNo MY_API_KEY found -- create the .env file first (see comment above).")
+
+
+# --- YOUR TURN ---
+# 1. Add a second line to your .env file: MY_NAME=<your actual name>
+# 2. Read it with os.getenv("MY_NAME") and print it.
+# 3. httpbin.org/headers echoes back every header you send, no auth
+#    needed. GET that url with headers={"X-My-Name": your name} and
+#    print response.json() to see your custom header echoed back.
+ +
+     
+missing_var = os.getenv("SOME_KEY_THAT_DOES_NOT_EXIST")
+print("\n ---os.getenv on something that DOESN'T exist")
+print("Missing var returns:", missing_var)
+
+
+load_dotenv()
+api_key = os.getenv("MY_API_KEY")
+print("\n ---Loaded from .env ---")
+print("MY_API_KEY:", api_key)
+
+
+if api_key:
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get("https://httpbin.org/bearer", headers=headers)
+    print("\n--- Sending the key as a Bearer token ---")
+    print("Status code:", response.status_code)
+    print(response.json())
+
+
+else:  
+    print("\nNo_API_KEY found --    create the .env file first (see comment aove). ")
+
+
+
+
+24.
+
+"""
+LESSON 24: Web scraping with requests + BeautifulSoup
+
+
+Not every website gives you a nice JSON API (lessons 21-23). Sometimes
+the only "data" available is a normal webpage meant for human eyes --
+HTML. Web scraping is: download that HTML with `requests` (exactly
+like before), then use BeautifulSoup to dig through the HTML structure
+and pull out the specific pieces you actually want.
+
+
+    pip install BeautifulSoup
+
+
+Think of HTML as a tree of nested boxes (tags): a <div> might contain
+a <span>, which contains some text. BeautifulSoup lets you say "find
+me every box with class='quote'" instead of manually hunting through
+raw text with string searches.
+
+
+We'll use quotes.toscrape.com -- a site built SPECIFICALLY for
+practicing scraping, so it's completely fine to hit it as much as you
+want.
+"""
+
+
+import requests
+from bs4 import BeautifulSoup
+
+
+# --- 1. Get the raw HTML, same requests.get() as always ---
+response = requests.get("https://quotes.toscrape.com/")
+print("Status code:", response.status_code)
+
+
+# --- 2. Parse it into a navigable structure ---
+soup = BeautifulSoup(response.text, "html.parser")
+
+
+# --- 3. Find ALL elements matching a tag + class ---
+# Every quote on this page is wrapped in <div class="quote">...</div>
+quotes = soup.find_all("div", class_="quote")
+print(f"\nFound {len(quotes)} quotes on the page")
+
+
+# --- 4. Dig INSIDE each quote div for the specific pieces ---
+print("\n--- First 3 quotes ---")
+for quote_div in quotes[:3]:
+    text = quote_div.find("span", class_="text").get_text()
+    author = quote_div.find("small", class_="author").get_text()
+    print(f"  {text} -- {author}")
+
+
+# --- 5. Getting a link's href instead of its text ---
+next_button = soup.find("li", class_="next")
+if next_button:
+    next_link = next_button.find("a")["href"]
+    print("\nLink to next page:", next_link)
+
+
+# --- YOUR TURN ---
+# 1. Every quote also has a list of tags, e.g. <a class="tag">life</a>
+#    inside a <div class="tags">. For the FIRST quote only, find all
+#    the tag links (hint: quotes[0].find_all("a", class_="tag")) and
+#    print the text of each one.
+# 2. Loop through ALL quotes (not just the first 3) and print just the
+#    author names -- then print how many UNIQUE authors there are
+#    (hint: put them in a set()).
+ 
+import requests
+from bs4 import BeautifulSoup
+
+
+response = requests.get("https://quotes.toscrape.com/")
+soup = BeautifulSoup(response.text, "html.parser")
+
+
+quotes = soup.find_all("div", class_="quote")
+
+
+print("\nTags for thr FIRST qoute:")
+first_tags = quotes[0].find_all("a", class_="tag")
+for tag in first_tags:
+    print("  -", tag.get_text())
+
+
+print("\nAll authors:")
+authors = set()
+
+
+for quote_div in quotes:
+    author = quote_div.find("small", class_="author").get_text()
+    print("  -", author)
+    authors.add(author)
+
+
+print(f"\nUnique authors: {len(authors)}")

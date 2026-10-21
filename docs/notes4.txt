@@ -1,0 +1,1857 @@
+"""
+LESSON 25: Your first Flask app
+
+
+Every lesson so far, YOUR code has been the one making requests
+(requests.get, requests.post) to someone ELSE's server. Flask flips
+that around: your Python code BECOMES the server, and other things
+(a browser, requests.get, another program) send requests TO you.
+
+
+    pip install flask
+
+
+IMPORTANT -- this lesson behaves differently from every lesson before
+it. Past scripts ran top to bottom and finished. This one, once you
+run it, will NOT finish -- app.run() starts a server that sits there
+waiting for requests forever, until you press Ctrl+C in the terminal.
+
+
+So the workflow is:+
+    1. Run this file. Your terminal will show something like
+       " * Running on http://127.0.0.1:5000" and then just sit there.
+       That's correct -- it's not frozen, it's listening.
+    2. Open a web browser and go to http://127.0.0.1:5000/
+       (127.0.0.1 means "this computer" -- you're talking to yourself)
+    3. Try the other routes too: http://127.0.0.1:5000/about and
+       http://127.0.0.1:5000/greet/Roy
+    4. When you're done looking, go back to the terminal and press
+       Ctrl+C to stop the server.
+"""
+
+
+from flask import Flask, jsonify
+
+
+app = Flask(__name__)
+
+
+
+
+#---1.A basic route---
+
+
+# @app.route(...)means "when somone visits This url, run the
+# function right below it."  "/" is the homepage.
+#app.route("/")
+def home():
+  return jsonify({"message": "Hello from tyour first Flask server!"})
+
+
+# --- YOUR TURN ---
+# Add a new route: /square/<number> that takes a number from the url
+# and returns JSON like {"number": 4, "squared": 16}. Note: use
+# <int:number> instead of <name> so Flask converts it to an actual
+# int for you (plain <number> would hand you a string, and you can't
+# do math on "4" the string the way you can on 4 the int).
+# Restart the server (stop with Ctrl+C, run the file again) and test
+# it at http://127.0.0.1:5000/square/4
+
+
+
+
+
+CHAPTER 26
+
+"""
+LESSON 26: CRUD API -- Flask + SQLite together
+
+
+CRUD = Create, Read, Update, Delete -- the four things almost every
+API in the world does to data. You already know the SQL for all four
+(INSERT, SELECT, UPDATE, DELETE) and you already know Flask routes
+(lesson 25). This lesson is just wiring those two things you already
+know together -- no new SQL, no new Flask concepts, just combining them.
+
+
+The convention (not a hard rule, just very common) is to match HTTP
+methods to CRUD actions:
+    GET    /people         -> READ all people
+    GET    /people/<id>    -> READ one person
+    POST   /people         -> CREATE a new person
+    PUT    /people/<id>    -> UPDATE an existing person
+    DELETE /people/<id>    -> DELETE a person
+
+
+Flask routes default to GET only. To accept other methods, you add
+methods=[...] to @app.route.
+
+
+request.get_json() reads the JSON body someone sent you in a POST/PUT
+-- the server-side mirror of the json=... you've been sending with
+requests.post() since lesson 22.
+"""
+
+
+from flask import Flask, jsonify, request
+import sqlite3
+
+
+app = Flask(__name__)
+
+
+def get_db():
+    conn = sqlite3.connect("app.db")
+    conn.row_factory = sqlite3.Row # lets us access columns by name, like a dict
+    return conn
+
+
+# ---Read all ----
+@app.route("/people", methods=["GET"])
+def get_people():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM people;").fetchall()
+    conn.close()
+    people = [dict(row)for row in rows]
+    return jsonify(people)
+
+
+# ---Read one ---
+@app.route("/people/<int:person_id>", methods=["GET"])
+def get_person(person_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM people WHERE id = ?;",
+(person_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return jsonify({"error":"person not found"}), 404
+    return jsonify(dict(row))
+
+
+# ---CREATE ----
+@app.route("/people", methods =["POST"])
+def create_person():
+  data = request.get_json()
+  conn= get_db()
+  cursor = conn.execute(
+      "INSERT INTO people (name, age, city) VALUES (?,?,?);",
+      (data["name"], data["age"], data["city"]),
+  )
+  conn.commit()
+  new_id = cursor.lastrowid
+  conn.close()
+  return jsonify({"id": new_id, "name": data["name"], "age": data["age"], "city": data["city"]}), 201
+
+
+# ---UPDATE---
+@app.route("/people/<int:person_id>", methods=["PUT"])
+def update_person(person_id):
+    data = request.get_json()
+    conn = get_db()
+    conn.execute(
+      "UPDATE people SET name = ?, age = ?, city = ? WHERE id = ?;",
+      (data["name"], data["age"], data["city"], person_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"id": person_id, "name": data["name"], "age": data["age"], "city": data["city"]})
+
+
+# --- DELETE ---
+@app.route("/people/<int:person_id>", methods=["DELETE"])
+def delete_person(person_id):
+    conn = get_db()
+    conn.execute("DELETE FROM people WHERE ID =?;",(person_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"deleted": person_id})
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+# --- YOUR TURN ---
+# With the server running, test these from a SECOND terminal (the first
+# one is busy running the server) using requests -- or write a small
+# separate script that imports requests and hits these urls:
+#   1. GET  http://127.0.0.1:5000/people            (should list everyone)
+#   2. POST http://127.0.0.1:5000/people             with json=
+#      {"name": "TestPerson", "age": 99, "city": "Nowhere"} -- note the
+#      new id it gives back.
+#   3. GET  http://127.0.0.1:5000/people/<that new id>  (should show
+#      just that person)
+#   4. PUT  http://127.0.0.1:5000/people/<that new id>  with json=
+#      {"name": "TestPerson", "age": 100, "city": "Nowhere"} (birthday!)
+#   5. DELETE http://127.0.0.1:5000/people/<that new id>  and then GET
+#      it again -- should now 404.
+
+
+
+
+
+
+CHAPTER 27
+"""
+LESSON 27 (CAPSTONE): Weather client -- requests + JSON + error handling
+
+
+This lesson doesn't teach anything brand new. It combines four things you
+already know how to do, on a real public API:
+    - requests.get()          (lesson 21)
+    - reading JSON responses  (lessons 20-22)
+    - checking status_code before trusting data (lesson 21)
+    - try/except error handling (Phase 3, lesson 12)
+
+
+We're using Open-Meteo (open-meteo.com) -- a free weather API that needs
+NO signup and NO API key, so there's no .env setup friction today. Real
+weather APIs need two calls:
+    1. Turn a city NAME into latitude/longitude (geocoding)
+    2. Use that latitude/longitude to get the actual weather
+
+
+That's why you'll see TWO requests.get() calls below, one feeding into
+the next -- output of call 1 becomes input to call 2. This "chain calls
+together" pattern is extremely common in real API work.
+""" # --- What happens with a city that doesn't exist ---
+
+
+
+
+# --- YOUR TURN ---
+# 1. Call show_weather_for() on your own city, and on one more city of
+#    your choice.
+# 2. Wrap the show_weather_for("Dallas") call above in a try/except that
+#    catches requests.exceptions.RequestException (this is the general
+#    error requests raises for network problems -- no internet, DNS
+#    failure, etc). Print a friendly message like "Network problem,
+#    try again" if it happens. You won't be able to easily TRIGGER this
+#    one on purpose, so just wire it up correctly.
+# 3. Add a loop: ask the user with input() to type a city name, call
+#    show_weather_for() on it, and keep asking until they type "quit".
+
+
+import requests
+
+
+def get_coordinates(city_name):
+    """Turn a city name into (latitude, longitude, matched_name), or None if not found."""
+    url =  "https://geocoding-api.open-meteo.com/v1/search"
+    params = {"name": city_name, "count": 1}
+
+
+    response = requests.get(url,params=params)
+
+
+    if response.status_code!= 200:
+        print(f"Geocoding requests failed (status {response.status_code})")
+        return None
+
+
+    data = response.json()
+
+
+    if "results" not in data or len(data["results"]) == 0:
+      print(f"Couldn't find a place called '{city_name}'")
+      return None
+
+
+    match = data["results"][0]
+    return match["latitude"], match["longitude"], match["name"]      
+
+
+def get_weather(lat,lon):
+    """Get the current weather for a given latitude/longitude."""
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {"latitude": lat, "longitude": lon, "current_weather": True}
+
+
+    response = requests.get(url, params=params)
+
+
+
+
+    if response.status_code != 200:
+        print(f"Weather request failed (status {response.status_code})")
+        return None
+
+
+    data = response.json()
+    return data["current_weather"]
+
+
+def show_weather_for(city_name):
+    coords = get_coordinates(city_name)
+    if coords is None:
+       return # get_coorddinates already printed why
+ 
+    lat, lon, matched_name = coords
+    weather = get_weather(lat, lon)
+    if weather is None:
+        return
+
+
+    print(f"\n--- Weather for {matched_name}---")
+    print(f"Temperature: {weather['temperature']} C")
+    print(f"Wind speed: {weather['windspeed']} km/h")
+
+
+show_weather_for("Dallas")
+show_weather_for("Zzzznotarealplace")
+show_weather_for("New York")
+show_weather_for("Tokyo")
+
+
+try:
+    show_weather_for("Dallas")
+except requests.exceptions.RequestException:
+    print("Network problem,  try again")
+
+
+while True:
+    city = input("\nType a city name (or 'quit' to exit): ").strip()
+    if city.lower() == "quit":
+        print("Goodbye !")
+        break
+    show_weather_for(city)
+
+
+CHAPTER 28
+
+import requests
+
+
+BASE = "http://127.0.0.1:5000"
+
+
+# --- 1. Get all notes ---
+
+
+print("\n ---GET all notes ---")
+response = requests.get(f"{BASE}/notes")
+print("Status:", response.status_code)
+notes = response.json()
+print(f"Got {len(notes)} notes back")
+
+
+# 2. POST new notes
+
+
+print("\n --- POST /notes ---")
+new_notes = {"title": "Secret_Notes", "content": "unknown_facts_about_women"}
+response = requests.post(f"{BASE}/notes", json=new_notes)
+print("Status:", response.status_code)
+created = response.json()
+print(created)
+new_id = created["id"]
+
+
+# ---3. Get notes back ---
+
+
+print(f"\n ---GET /notes/{new_id} ---")
+response = requests.get(f"{BASE}/notes/{new_id}")
+print("Status:", response.status_code)
+print(response.json())
+
+
+
+
+# --- 4. PUT (update) notes
+
+
+print(f"\n ---PUT /notes/{new_id} ---")
+updated_notes = {"title": "Secret_notes", "content": "unknown_facts_about_women"}
+response = requests.put(f"{BASE}/notes/{new_id}", json=updated_notes)
+print("Status:", response.status_code)
+print(response.json())
+
+
+# ---5. Delete that note
+
+
+print(f"\n ---DELETE /notes/{new_id} ---")
+response = requests.delete(f"{BASE}/notes/{new_id}")
+print("Status:", response.status_code)
+print(response.json())
+
+
+print(f"\n--- GET /notes/{new_id} again (should 404 now) ---")
+response = requests.get(f"{BASE}/notes/{new_id}")
+print("Status:", response.status_code)
+print(response.json())
+
+
+
+
+"""
+LESSON 29: What an LLM actually is, and what "tokenization" means
+
+
+Welcome to Phase 5 -- this is where the AI/ML side of your goal actually
+starts. Everything in Phases 1-4 (Python, OOP, SQL, APIs, Flask) was the
+plumbing. Starting now, we build on top of it.
+
+
+--- What an LLM (Large Language Model) actually is ---
+At the core, an LLM is a program that has been trained on huge amounts
+of text to do ONE thing extremely well: given some text so far, predict
+what text is most likely to come next. That's it. Everything else --
+answering questions, writing code, holding a conversation -- comes from
+that one skill applied over and over, one small piece at a time.
+
+
+It does NOT "look up" answers in a database (that's what you built in
+Phase 4 -- a totally different thing). It generates its answer piece by
+piece based on patterns learned during training.
+
+
+--- What "tokenization" means ---
+An LLM can't read letters or words directly -- it only understands
+numbers. Tokenization is the step that converts text into numbers:
+
+
+    1. Split the text into small pieces called TOKENS. A token is often
+       a whole word, but can also be a piece of a word, or a single
+       punctuation mark. ("unbelievable" might become "un" + "believable")
+    2. Each unique token gets assigned a number (its token ID) using a
+       lookup table called a VOCABULARY -- basically a big dict, exactly
+       like the dicts you've been using since lesson 2.
+    3. The model receives a list of numbers, does its prediction, and
+       spits out more numbers, which get converted BACK to text using
+       that same vocabulary in reverse.
+
+
+Real tokenizers (used by GPT, Claude, etc.) are much smarter than what
+we're building below -- they're trained on huge amounts of text to find
+the most efficient way to split words. But the CONCEPT is identical to
+what you're about to build by hand: text -> tokens -> numbers -> (later)
+numbers -> tokens -> text.
+"""
+
+
+# --- A tiny tokenizer, built from scratch with plain Python ---
+# This is NOT how real tokenizers work internally, but the concept --
+# build a vocabulary, encode text to numbers, decode numbers back to
+# text -- is exactly the same idea.
+
+
+import re
+
+
+def simple_tokenize(text):
+    """Splits text into words and punctuation as separate tokens."""
+    # \w+ matches a run of letters/numbers (a word), [^\w\s] matches a
+    # single punctuation character. This is just pattern matching --
+    # you don't need to understand regex deeply to get the concept here.
+    return re.findall(r"\w+|[^\w\s]", text.lower())
+
+
+def build_vocabulary(tokens):
+    """Assigns each UNIQUE token a number, in the order first seen."""
+    vocabulary = {}
+    for token in tokens:
+        if token not in vocabulary:
+            vocabulary[token] = len(vocabulary)
+    return vocabulary
+
+
+def encode(text, vocabulary):
+    """Text -> list of token IDs, using an existing vocabulary."""
+    tokens = simple_tokenize(text)
+    return [vocabulary[token] for token in tokens]
+
+
+def decode(token_ids, vocabulary):
+    """List of token IDs -> text, using the SAME vocabulary in reverse."""
+    # We need the reverse mapping: number -> token (instead of token -> number)
+    id_to_token = {token_id: token for token, token_id in vocabulary.items()}
+    return " ".join(id_to_token[token_id] for token_id in token_ids)
+
+
+# --- Try it out ---
+sample_text = "The cat sat on the mat. The cat was happy!"
+
+
+tokens = simple_tokenize(sample_text)
+print("--- Tokens ---")
+print(tokens)
+
+
+vocabulary = build_vocabulary(tokens)
+print("\n--- Vocabulary (token -> id) ---")
+print(vocabulary)
+
+
+encoded = encode(sample_text, vocabulary)
+print("\n--- Encoded (text -> numbers) ---")
+print(encoded)
+
+
+decoded = decode(encoded, vocabulary)
+print("\n--- Decoded (numbers -> text) ---")
+print(decoded)
+
+
+print(f"\nUnique tokens in vocabulary: {len(vocabulary)}")
+print(f"Total tokens in the sentence: {len(tokens)}")
+print("Notice 'the' and 'cat' only appear ONCE in the vocabulary, even")
+print("though they appear TWICE in the sentence -- that's the whole point")
+print("of a vocabulary: reusing the same number for the same token.")
+
+
+# --- YOUR TURN ---
+# 1. Pick your own sentence (at least 8-10 words, with some repeated
+#    words) and run it through simple_tokenize(). Print the result.
+# 2. Build a vocabulary from YOUR tokens using build_vocabulary().
+#    Print it.
+# 3. Encode your sentence, then decode it back, and print both. Confirm
+#    the decoded text matches your original (it might not match
+#    capitalization exactly -- can you explain why, based on what
+#    simple_tokenize() does to the text first?)
+# 4. Try encoding a DIFFERENT sentence that uses a word NOT in your
+#    original vocabulary. What error do you get, and why does it make
+#    sense given how encode() works? (Hint: look at what happens inside
+#    the dict when you ask for a key that was never added.)
+ 
+sample_text = "Lucy love law. Like Lucy love cake."
+
+
+tokens = simple_tokenize(sample_text)
+print("---Tokens---")
+print(tokens)
+
+
+vocabulary = build_vocabulary(tokens)
+print("\n---Vocabulary(token -> id)---")
+print(vocabulary)
+
+
+encoded = encode(sample_text, vocabulary)
+print("\n---Encoded (text -> numbers)---")
+print(encoded)
+
+
+decoded = decode(encoded,vocabulary)
+print("\n---Decoded (numbers -> text)---")
+print(decoded)
+
+
+print(f"\nUnique tokens in vocabulary: {len(vocabulary)}")
+print(f"Total tokens in the sentence; {len(tokens)}")
+
+
+tokens = simple_tokenize("Lucy love law. Like Lucy love cake.")
+print(tokens)
+
+
+vocab = build_vocabulary(tokens)
+print(vocab)
+
+
+encoded = encode("Lucy love law. Like Lucy love cake.", vocab)
+print(encoded)
+
+
+decoded = decode(encoded, vocab)
+print(decoded)
+
+
+vocab = build_vocabulary(tokens)
+print(vocab)
+
+
+encoded = encode("Lucy love pizza.",vocab)
+print(encoded)
+
+
+decoded = decode(encoded, vocab)
+print(decoded)
+
+
+CHAPTER 30
+
+"""
+LESSON 30: Your first real LLM API call
+
+
+This is the payoff for Phase 4. Calling an LLM is NOT some brand new
+magic skill -- it's the exact same pattern as lesson 22 (POST requests)
+and lesson 23 (env vars + auth headers), just pointed at a different
+company's server. Same shape: build a JSON body, attach an auth header,
+POST it, read the JSON response back.
+
+
+--- One-time setup ---
+1. Go to https://console.anthropic.com and create an account (or log
+   in if you already use Claude). New accounts get a small amount of
+   free credit -- this lesson uses a tiny fraction of a cent.
+2. Go to "API Keys" in the left sidebar, click "Create Key", and copy
+   the key it gives you (starts with "sk-ant-...").
+3. Open your .env file (same one from lesson 23) and add a new line:
+       ANTHROPIC_API_KEY=sk-ant-the-real-key-you-copied
+4. pip install python-dotenv   (you already have this from lesson 23)
+
+
+--- The request shape ---
+POST to https://api.anthropic.com/v1/messages with:
+    headers: x-api-key (your key -- Anthropic's version of the Bearer
+             token pattern from lesson 23) and anthropic-version (which
+             API version format you're using)
+    json body: which model, a list of "messages" (like a chat history --
+             each one has a "role" of "user" or "assistant", and
+             "content" -- the actual text), and max_tokens (the most
+             text you're willing to let it generate back, since you pay
+             per token).
+"""
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+print(f"DEBUG: key being used starts with: {api_key[:15] if api_key else None}")
+print(f"DEBUG: key length: {len(api_key) if api_key else 0}")
+
+
+if not api_key:
+    print("No ANTHROPIC_API_KEY found -- add it to your .env file first (see the comment above).")
+else:
+    url = "https://api.anthropic.com/v1/messages"
+
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 100,
+        "messages": [
+            {"role": "user", "content": "Say hello in exactly five words."}
+        ],
+    }
+
+
+    response = requests.post(url, headers=headers, json=body)
+
+
+    print("--- Status code ---")
+    print(response.status_code)
+
+
+    print("\n--- Full response JSON ---")
+    data = response.json()
+    print(data)
+
+
+    if response.status_code == 200:
+        # The model's actual reply text is buried inside the response --
+        # data["content"] is a LIST (a model can return multiple content
+        # blocks), and each block is a dict with a "text" key.
+        reply_text = data["content"][0]["text"]
+        print("\n--- Just the model's reply ---")
+        print(reply_text)
+
+
+        print("\n--- Token usage (this is what you're billed for) ---")
+        print(data["usage"])
+
+
+# --- YOUR TURN ---
+# 1. Change the message content to ask your own question, and print
+#    just the reply text.
+# 2. Print data["usage"] and identify which number is input tokens
+#    (your question, tokenized) vs output tokens (the reply, tokenized)
+#    -- tie this back to lesson 29's tokenizer concept.
+# 3. Lower max_tokens to something small, like 5, and ask a question
+#    that needs a long answer. Print the reply and the "stop_reason"
+#    field from the response -- what does it say, and why?
+# 4. Add a SECOND message to the "messages" list with role "assistant"
+#    containing whatever the model said last time, then a THIRD message
+#    with role "user" asking a follow-up question (like "say it again
+#    but in Spanish"). This is how conversation history actually works --
+#    the model has no memory of its own, YOU resend the whole
+#    conversation every single time.
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv()
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+url = "https://api.anthropic.com/v1/messages"
+
+
+headers = {
+    "x-api-key": api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+body = {
+    "model": "claude-haiku-4-5-20251001",
+    "max_tokens": 150,
+    "messages": [
+        {"role": "user", "content": "What is the difference between good and evil?"},
+        {"role": "assistant", "content": "Good reflects admirable character evil reflects vice"},
+        {"role": "user", "content": "However there is a concept that sometimes the good/right thing isn't the good/right thing to do. Correct?"}
+    ],
+}
+
+
+response = requests.post(url, headers=headers, json=body)
+data = response.json()
+
+
+print(data["content"][0]["text"])
+
+
+print("---Status code---")
+print(response.status_code)
+
+
+print("\n---Full response JSON---")
+data = response.json()
+print(data)
+print("\n---Stop reason---")
+print(data["stop_reason"])
+
+
+
+
+
+
+if response.status_code == 200:
+    reply_text = data["content"][0]["text"]
+    print("\n---Just the model's reply---")
+    print(reply_text)
+
+
+print("\n---Token usage (this is what you're billed for)---")
+print(data["usage"])
+
+
+
+CHAPTER 31
+
+"""
+LESSON 31: Prompt engineering -- system prompts, few-shot examples, output format
+
+
+You already know how to CALL an LLM (lesson 30). Prompt engineering is about
+controlling WHAT COMES BACK, using nothing but the words you send. No new
+libraries, no new API shape -- just three techniques layered onto the same
+requests.post() call you already know.
+
+
+--- 1. System prompts ---
+So far every message you've sent has had role "user". Anthropic's API also
+accepts a separate top-level "system" field (NOT inside the messages list) --
+this sets the model's persona/behavior/rules for the ENTIRE conversation,
+before it sees anything you ask. Same request, different system prompt,
+wildly different answer to the exact same question.
+
+
+--- 2. Few-shot examples ---
+"Few-shot" means: instead of just describing what you want, you SHOW the
+model 2-3 example input/output pairs first (as fake user/assistant messages),
+then ask your real question last. The model pattern-matches the FORMAT of
+your examples onto your new input. This is often more reliable than
+describing the format in words.
+
+
+--- 3. Output formatting ---
+You can just... ask for the shape you want. "Respond with ONLY the number,
+nothing else." "Respond in exactly this format: Rating: X/10." The model
+usually complies, though not with 100% guaranteed reliability -- lesson 32
+covers how to make this more bulletproof.
+"""
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+
+
+url = "https://api.anthropic.com/v1/messages"
+
+
+
+
+
+
+headers = {
+    "x-api-key":api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+def ask(user_message, system_prompt=None, messages_history=None, max_tokens=150):
+    """Small helper so we don't retype the request boilerplate everytime.
+    system_prompt is optional. messages_history lets us pass few_shot
+      examples
+    (a list of {"role":..., "content":...} dicts) BEFORE the real question."""
+    messages = list(messages_history) if messages_history else[]
+    messages.append({"role": "user", "content": user_message})
+
+
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+
+
+
+
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+# --- Demo 1: system prompt changes the SAME question's answer ---
+question = "What should I eat for dinner?"
+
+
+print("---No system prompt---")
+print(ask(question))
+
+
+print("\n---System prompt: terse pirate---")
+print(ask(question, system_prompt="You are a terse pirate. Answer every questionm in pirate voice, in at most 2 sentences."))
+
+
+
+
+#---Demo 2: few-shot examples teach a FORMAT by showing, not telling---
+
+
+sentiment_examples = [
+    {"role": "user", "content": "This movie was amazing, I loved every minute."},
+    {"role": "assistant", "content": "positive"},
+    {"role": "user", "content": "Waste of money, I want my time back."},
+    {"role": "assistant", "content": "negative"},
+    {"role": "user", "content": "It was fine, nothing special either way."},
+    {"role": "assistant", "content": "neutral"},
+]
+
+
+print("\n---Few-shot sentiment classifier---")
+print(ask("The food was cold and the service was slow.",
+messages_history=sentiment_examples, max_tokens=10))
+
+
+#---Demo 3. asking directly for an output format---
+print("\n---Output format constarint---")
+print(ask(
+    "Rate how healthy a pizza is on a scale of 1-10.",
+    system_prompt="Respond in EXACTLY this format and nothing else:" \
+    "Rating:X/10",
+    max_tokens=15,
+
+
+))
+
+
+# --- YOUR TURN ---
+# 1. Own system prompt, same question, with vs without
+
+
+my_system_prompt = "You are a strict fitness coach. Be blunt and motivating, no fluff, max 2 sentences."
+my_question = "Should I skip the gym today?"
+
+
+print("\n--- Assignment 1: no system prompt ---")
+print(ask(my_question))
+
+
+print("\n--- Assignment 1: with my system prompt ---")
+print(ask(my_question, system_prompt=my_system_prompt))
+
+
+more_examples = [
+    {"role": "user", "content": "Today, Esmeralda, looked delicious!"},
+    {"role": "assistant", "content": "positive"},
+    {"role": "user", "content": "However, she is jealous and very possessive."},
+    {"role": "assistant", "content": "negative"},
+    {"role": "user", "content": "I will be patient with her. Time always win."},
+    {"role": "assistant", "content": "neutral"}
+    ]
+
+
+print("\n---Few-shot sentiment classifier---")
+print(ask("Women are beautiful, but their hearts are cold.",
+messages_history=more_examples,max_tokens=10))
+
+
+
+
+print("\n---Output format constraint---")
+print(ask(
+    "Rate the beauty of Coloumbian women on the scale of 1-10.",
+    system_prompt= "Respond in EXACTLY this format and nothing else: Rating: X/10",
+    max_tokens=15,
+))
+
+
+new_system_prompt= "You are a strict AI professor. Be acute and forthcoming in your lessons."
+present_question= "What are the Most Founding structures of AI engineering?"
+
+
+print("\n---Assignment 2. no system prompt---")
+print(ask(present_question))
+
+
+extra_sentiment_examples= [
+    {"role": "user", "content": "Life is a sweet game of chess."},
+    {"role": "assistant", "content": "positive"},
+    {"role": "user", "content": "Only the masters win."},
+    {"role": "assistant", "content": "positive"},
+    {"role": "user", "content": "However, the amatures, mostly fail."},
+    {"role": "assistant", "content": "negitive"},
+]
+
+
+print("\n---Extra Few-shot Sentiment Examples--- ")
+print(ask("Chess is a brillant game, with some weak, and some strong.",
+messages_history=extra_sentiment_examples,max_tokens=12))
+
+
+print("\n---Last output format Constraint---")
+print(ask(
+    "Rate how powerful an effect chess has over the human mind from 1-10.",
+    system_prompt= "Respond in EXACTLY this format and nothing else: Rating: X/10",
+    max_tokens=12,
+))
+
+
+intergrated_system_prompt= "You are a highly esteem Ai engineer. Respond in this EXACT format and nothing else: Response texture: <matter of fact>"
+
+
+
+
+intergrated_examples= [
+    {"role": "user", "content": "Neural nLetworks is sort of a thinking mechanism for llms?"},
+    {"role": "assistant", "content": "Response texture: matter of fact"},
+    {"role": "user", "content": "LLMs actually think like humans."},
+    {"role": "assistant", "content": "Response texture: unproven"},
+]
+
+
+print("\n---Assignment 4. intergrated system prompt + few-shot + format---")
+print(ask(
+    "LLMs are phenomenal strutured systems that humans still have a lot to learn about.",
+    system_prompt=intergrated_system_prompt,
+    messages_history=intergrated_examples,
+    max_tokens=40,
+))
+
+
+Chapter 32
+"""
+LESSON 32: Structured outputs -- getting reliable JSON back from an LLM
+
+
+Lesson 31 showed the model won't always follow formatting instructions
+exactly -- it can refuse, add commentary, or drift. For most real
+applications (APIs, automations, saving to a database) "usually good text"
+isn't good enough. You need the reply as DATA -- a Python dict, via
+json.loads() -- not just a sentence you eyeball and trust.
+
+
+Three techniques, used together:
+
+
+--- 1. Ask for JSON explicitly, with an exact schema ---
+Describe the exact keys and types you want in the system prompt. Vague
+("give me some JSON") gets vague results. Specific field names, types, and
+an example shape gets specific results.
+
+
+--- 2. Strip markdown fences before parsing ---
+Models are trained on a lot of markdown, so they often wrap JSON in
+```json ... ``` fences even when told not to. Real code has to handle
+this: strip the fences before handing the text to json.loads().
+
+
+--- 3. Always wrap json.loads() in try/except ---
+No matter how good your prompt is, the model can still return something
+that isn't valid JSON (extra commentary, a typo, a trailing comma). Never
+trust it blindly -- catch json.JSONDecodeError and handle the failure
+instead of letting your program crash.
+"""
+
+
+import os
+import json
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+url = "https://api.anthropic.com/v1/messages"
+
+
+headers = {
+    "x-api-key": api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+
+
+def ask(user_message, system_prompt=None, messages_history=None, max_tokens=300):
+    """Same helper from lesson 31 -- sends one request, returns the reply text."""
+    messages = list(messages_history) if messages_history else []
+    messages.append({"role": "user", "content": user_message})
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+
+
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+
+
+def strip_markdown_fences(text):
+    """Models often wrap JSON in ```json ... ``` even when told not to.
+    Remove the fences (if present) so json.loads() gets a clean string."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:]          # drop the opening ``` (or ```json) line
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]     # drop the closing ``` line
+        text = "\n".join(lines)
+    return text.strip()
+
+
+
+
+def ask_for_json(user_message, schema_description, max_tokens=300):
+    """Asks the model for JSON matching a described schema, and safely
+    parses the reply. Returns a Python dict/list on success, or None on
+    failure (printing why)."""
+    system_prompt = (
+        "You respond ONLY with valid JSON matching this schema, and "
+        f"nothing else -- no explanation, no markdown fences: {schema_description}"
+    )
+    raw_reply = ask(user_message, system_prompt=system_prompt, max_tokens=max_tokens)
+    cleaned = strip_markdown_fences(raw_reply)
+
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        print(f"Couldn't parse JSON: {e}")
+        print(f"Raw reply was: {raw_reply}")
+        return None
+
+
+
+
+# --- Demo: extract structured data from a plain sentence ---
+schema = '{"name": string, "age": number, "city": string}'
+result = ask_for_json(
+    "Extract the person's info: Maria is 34 years old and lives in Austin.",
+    schema,
+)
+
+
+print("--- Parsed result ---")
+print(result)
+print(type(result))
+
+
+if result:
+    print(f"\nName: {result['name']}")
+    print(f"Age: {result['age']}")
+    print(f"City: {result['city']}")
+
+
+# --- YOUR TURN ---
+# 1. Write your own schema (at least 3 fields, mixing types -- a string, a
+#    number, and a list) and call ask_for_json() with your own sentence to
+#    extract from. Print the parsed dict, then access at least 2 individual
+#    fields directly (like result["field_name"]).
+#
+# 2. Deliberately trigger the try/except failure path -- give ask_for_json()
+#    a sentence that has NOTHING to do with your schema (e.g. ask it to
+#    extract {"stock_price": number} from a sentence about a cat), so the
+#    model has nothing real to extract and the reply likely won't be clean
+#    JSON. Confirm you get None back and a printed error, NOT a crash.
+#
+# 3. Loop over a LIST of 3 short product reviews (write your own), call
+#    ask_for_json() on each one to extract {"rating": number, "summary":
+#    string}, and print each parsed result. This is the real pattern behind
+#    turning a pile of unstructured text into structured data you could
+#    save to a database.
+#
+# 4. In your own words: what would go wrong if strip_markdown_fences()
+#    didn't exist and the model wrapped its reply in ```json fences anyway?
+#    (Hint: think about what characters would be sitting at the very start
+#    and end of the string you hand to json.loads().)
+
+
+schema = '{"name": string, "age": number, "realm": string, "powers": [list of strings]}'
+result = ask_for_json(
+    "Extract the orisha's info: Yemaya is an orisha, 30 years old, who lives in the realm of Orun and governs the sea and motherhood.",
+    schema,
+)
+
+
+
+
+print("---Parsed result---")
+print(result)
+print(type(result))
+
+
+if result:
+    print(f"\nName:{result['name']}")
+    print(f"Age:{result['age']}")
+    print(f"Realm:{result['realm']}")
+    print(f"Powers:{result['powers']}")
+
+
+
+
+schema = '{"name": string, "age": number, "city": string}'
+result = ask_for_json(
+    "Extract the amount od coins SOLOMON has in his wallet account.",
+    schema,
+)
+print("---Parsed result---")
+print(result)
+print(type(result))
+
+
+# --- Assignment #3 ---
+# Extract {"rating": number, "summary": string} from 3 product reviews
+
+
+reviews = [
+    "This blender is amazing — super powerful, but a bit loud. I'd give it a 4 out of 5.",
+    "The headphones sound decent but the battery dies fast. Solid 3/5 overall.",
+    "Fantastic keyboard! Great feel, great build, easy to recommend. 5 stars from me."
+]
+
+
+schema_reviews = '{"rating": number, "summary": string}'
+
+
+print("\n--- Assignment #3 Results ---")
+
+
+for idx, review in enumerate(reviews, start=1):
+    result = ask_for_json(review, schema_reviews)
+
+
+    print(f"\nReview #{idx}:")
+    print(result)
+
+
+    if result:
+        print(f"Rating: {result['rating']}")
+        print(f"Summary: {result['summary']}")
+
+
+
+
+# if mark down fences did not exist tghe code would crash. python's uilt in JSON parser(json.loads)
+   # expects data to start with a ([) or ({) when it see those backtics it pANICS AND CRASHES
+   
+
+CHAPTER 33
+
+"""
+LESSON 33: Embeddings -- turning text into "meaning vectors"
+
+
+--- What an embedding actually is ---
+In lesson 29 you built a TOKENIZER: text -> arbitrary lookup numbers (token
+IDs), just so the model could read the text at all. Those numbers carry NO
+meaning by themselves -- token 47 isn't "more similar" to token 48 just
+because they're next to each other. It's just a lookup table.
+
+
+An EMBEDDING is a completely different kind of number-conversion. It turns
+a whole piece of text into a long list of numbers (a VECTOR -- often 1024
+numbers long) that represents its MEANING. The key property: texts with
+SIMILAR meaning produce vectors that are mathematically close together,
+and texts with DIFFERENT meaning produce vectors that are far apart. "The
+cat sat on the mat" and "A feline rested on the rug" would produce very
+similar vectors, even though they don't share almost any of the same
+words -- because an embedding model was trained specifically to capture
+meaning, not just word-matching.
+
+
+This is the foundation of semantic search (finding relevant documents by
+MEANING, not exact keyword match) and RAG (Phase 6) -- you'll embed a
+question and embed a pile of documents, then find which documents have
+vectors closest to the question's vector.
+
+
+--- Getting a real embedding vector ---
+Anthropic doesn't run its own embeddings API -- they officially recommend
+Voyage AI (built by ex-Anthropic researchers) as the embedding provider to
+pair with Claude. Setup, same pattern as lesson 30:
+1. Go to https://dashboard.voyageai.com and create an account.
+2. Go to "API keys", click "Create new secret key", copy it.
+3. Add a new line to your SAME .env file:
+       VOYAGE_API_KEY=your-real-key-here
+   (Every account gets 200 million free tokens, one-time -- this lesson
+   uses an insignificant fraction of that.)
+4. No new pip installs needed -- we're using requests, same as always.
+
+
+--- The request shape ---
+POST to https://api.voyageai.com/v1/embeddings with:
+    headers: Authorization ("Bearer <key>" -- note this is a DIFFERENT auth
+             style than Anthropic's x-api-key header, same core idea though)
+    json body: "input" (a list of text strings to embed), "model" (which
+             embedding model), "input_type" ("document" or "query" -- lets
+             Voyage optimize the vector slightly differently depending on
+             which side of a search you're embedding)
+"""
+
+
+import os
+import time
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Sends ONE text string to Voyage AI, returns its embedding -- a list
+    of floats (a vector) representing that text's meaning."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute -- stay under it
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    print("DEBUG status:", response.status_code, "| DEBUG raw response:", data)
+    return data["data"][0]["embedding"]
+
+
+
+
+# --- Demo: embed a sentence and look at the vector ---
+sentence = "The cat sat on the mat."
+vector = get_embedding(sentence)
+
+
+print("--- Embedding a sentence ---")
+print(f"Text: {sentence}")
+print(f"Vector length (dimensions): {len(vector)}")
+print(f"First 5 numbers: {vector[:5]}")
+
+
+# --- Demo: same MEANING, different WORDS -- do the vectors look related? ---
+sentence_a = "The cat sat on the mat."
+sentence_b = "A feline rested on the rug."
+sentence_c = "The stock market crashed on Tuesday."
+
+
+vector_a = get_embedding(sentence_a)
+vector_b = get_embedding(sentence_b)
+vector_c = get_embedding(sentence_c)
+
+
+print("\n--- Three sentences, three vectors ---")
+print(f"A: {sentence_a}")
+print(f"B: {sentence_b} (similar MEANING to A, different words)")
+print(f"C: {sentence_c} (unrelated to A and B)")
+print(f"\nAll three vectors have the same length: {len(vector_a)}, {len(vector_b)}, {len(vector_c)}")
+print("Just from eyeballing raw numbers you can't tell which are 'close' --")
+print("that requires actual math (cosine similarity), which is lesson 34.")
+print("For now, just trust that A and B are secretly much closer together")
+print("in this 1024-dimensional space than either is to C.")
+
+
+# --- YOUR TURN ---
+# 1. Pick 3 sentences of your own -- two that are similar in MEANING (but
+#    use different words if possible) and one completely unrelated one.
+#    Embed all 3 with get_embedding(), print each vector's length and the
+#    first 5 numbers of each.
+#
+# 2. Embed a single WORD (like "dog") and a full SENTENCE that's much
+#    longer. Compare the vector lengths. Are they the same or different?
+#    Why does that make sense -- what does the embedding DIMENSION actually
+#    depend on (hint: it's set by the MODEL, not by how much text you send
+#    in)?
+#
+# 3. Call get_embedding() on the exact SAME sentence twice -- once with
+#    input_type="document" and once with input_type="query". Print the
+#    first 5 numbers of each result. Are they identical or different? Why
+#    (re-read the input_type explanation in the docstring above)?
+#
+# 4. In your own words: how is an embedding vector fundamentally different
+#    from the token IDs you built in lesson 29's tokenizer? (Think about
+#    what it means for two NUMBERS to be "close" in each system -- does
+#    closeness mean anything for token IDs? Does it mean anything for
+#    embedding vectors?)
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    body= {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+
+
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute -- stay under it
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+sentence = "The cat sat on a mat."
+vector = get_embedding(sentence)
+
+
+print("---Embedding a sentence---")
+print(f"Text: {sentence}")
+print(f"Vector length (dimensions): {len(vector)}")
+print(f"First 5 numbers:{vector[:5]}")
+
+
+# Demo: same MEANING, different WORDS -- do the vectors look related?---
+sentence_a= "The cat sat on the mat."
+sentence_b= "The fline rested on the rug."
+sentence_c= "The stock market crashed on Tuesday."
+
+
+vector_a= get_embedding(sentence_a)
+vector_b= get_embedding(sentence_b)
+vector_c= get_embedding(sentence_c)
+
+
+
+
+print("\n--- Three sentences, three vectors---")
+print(f"A:{sentence_a}")
+print(f"B:{sentence_b}")
+print(f"C:{sentence_c}")
+print(f"\nAll three vectors have the same length:{len(vector_a)}, {len(vector_b)}, {len(vector_c)}")
+print("Just from eyeballing raw numbers you can't tell which are 'close'---")
+print("that requires actual math (cosine similarity), whic is lesson 34.")
+print("For now, just trust that A and B are secretly much closer together")
+print("in this 1024-dimensional space than either is C.")
+
+
+
+
+sentence_d= "Men love to work hard and play hader."
+sentence_e= "Guys grind, toli, and then relax."
+sentence_f= "The world is full of gifts and surprises."
+
+
+
+
+vector_d= get_embedding(sentence_d)
+vector_e= get_embedding(sentence_e)
+vector_f= get_embedding(sentence_f)
+
+
+print(vector_d[:5])
+print(vector_e[:5])
+print(vector_f[:5])
+
+
+
+
+
+
+word= "doggy_dog"
+sentence_two= "Women are beautiful creatures."
+
+
+word_vector= get_embedding(word)
+sentence_vector= get_embedding(sentence_two)
+
+
+print("---Embedding a word---")
+print(f"Text: {word}")
+print(f"Word vector length: {len(word_vector)}")
+print(f"First 5 numbers: {word_vector[:5]}")
+
+
+print("\n---Embedding a sentence---")
+print(f"Text: {sentence_two}")
+print(f"Sentence vector length: {len(sentence_vector)}")
+print(f"First 5 numbers: {sentence_vector[:5]}")
+
+
+new_sentence= "Why is the world is a ghetto?"
+
+
+document_vector = get_embedding(new_sentence, input_type= "document")
+query_vector = get_embedding(new_sentence, input_type="query")
+
+
+print("Document first 5:", document_vector[:5])
+print("Query first 5:", query_vector[:5])
+
+
+# embedding is different because they both work as a process which embedding would be second to tokenizing.
+# taking the broken down parts(tokens)
+# converting them into numbers that computers can read and understand.
+# does closeness between numbers mean anything within the two concepts of tokenization and embedding, no with tookens and yes with embeddings
+# two tokenized numbers can be very close but have no close meaning but embedding if two numbers are close there will be resemblence in their meaning.
+
+
+
+
+
+CHAPTER 34
+
+"""
+LESSON 34: Vector math -- proving which embeddings are actually "close"
+
+
+Lesson 33 kept saying "trust me, A and B are closer together than either is
+to C" without ever proving it. This lesson builds the actual math, from
+scratch, in plain Python -- no libraries, no imports beyond what you
+already know. Three small functions, each one plain arithmetic:
+
+
+--- 1. Dot product ---
+Pair up each number in vector A with the matching number in vector B
+(position 1 with position 1, position 2 with position 2, ...), multiply
+each pair, then add up all the results into one total. That's it --
+multiply, then sum.
+
+
+--- 2. Magnitude (length) of a vector ---
+Square every number in the vector, add them all up, then take the square
+root of that total. This is the Pythagorean theorem (a^2 + b^2 = c^2)
+stretched from 2 dimensions to however many the vector has (1024, in our
+case).
+
+
+--- 3. Cosine similarity ---
+    cosine_similarity(A, B) = dot_product(A, B) / (magnitude(A) * magnitude(B))
+
+
+   
+The division by both magnitudes matters -- it "normalizes" the result so
+it only reflects DIRECTION (meaning), not how large the raw numbers happen
+to be. The result always lands between -1 and 1:
+    1.0  -> pointing in the exact same direction (as similar as possible)
+    0.0  -> unrelated / no meaningful relationship
+   -1.0  -> pointing in opposite directions
+
+
+This one calculation is the entire foundation of semantic search and RAG
+(Phase 6) -- embed a question, embed a pile of documents, compute cosine
+similarity between the question and every document, and whichever
+document scores highest is the most relevant one.
+"""
+
+
+import os
+import time
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lesson 33 -- text in, a 1024-number vector out."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def dot_product(vec_a, vec_b):
+    """Multiply matching positions together, sum the results."""
+    total = 0
+    for a, b in zip(vec_a, vec_b):
+        total += a * b
+    return total
+
+
+
+
+def magnitude(vec):
+    """Length of a vector -- Pythagorean theorem stretched to N dimensions."""
+    total = 0
+    for x in vec:
+        total += x ** 2
+    return total ** 0.5
+
+
+
+
+def cosine_similarity(vec_a, vec_b):
+    """Returns a number from -1 to 1. Closer to 1 means more similar meaning."""
+    return dot_product(vec_a, vec_b) / (magnitude(vec_a) * magnitude(vec_b))
+
+
+
+
+# --- Demo: finally proving lesson 33's claim ---
+sentence_a = "The cat sat on the mat."
+sentence_b = "A feline rested on the rug."
+sentence_c = "The stock market crashed on Tuesday."
+
+
+vector_a = get_embedding(sentence_a)
+vector_b = get_embedding(sentence_b)
+vector_c = get_embedding(sentence_c)
+
+
+similarity_ab = cosine_similarity(vector_a, vector_b)
+similarity_ac = cosine_similarity(vector_a, vector_c)
+
+
+print("--- Cosine similarity ---")
+print(f"A: {sentence_a}")
+print(f"B: {sentence_b}")
+print(f"C: {sentence_c}")
+print(f"\nSimilarity(A, B) = {similarity_ab:.4f}  (similar meaning, different words)")
+print(f"\nSimilarity(A, C) = {similarity_ac:.4f}  (unrelated topics)")
+
+
+if similarity_ab > similarity_ac:
+    print("\nProven: A and B ARE closer together than A and C.")
+else:
+    print("\nUnexpected -- but the math itself is still correct, just check the sentences.")
+
+
+# --- Sanity check: a vector compared to itself ---
+self_similarity = cosine_similarity(vector_a, vector_a)
+print(f"\nSimilarity(A, A) = {self_similarity:.4f}  (a vector against itself -- should be ~1.0)")
+
+
+# --- YOUR TURN ---
+# 1. Pick your own 3 sentences (like lesson 33 -- two similar in meaning,
+#    one unrelated). Embed all 3, then compute cosine_similarity() for
+#    EVERY pair (A-B, A-C, B-C) -- print all three scores. Confirm the
+#    similar pair scores highest.
+#
+# 2. Call cosine_similarity(vec, vec) on any vector you already have
+#    against ITSELF and confirm it prints ~1.0. In your own words, why
+#    does comparing something to itself always give the maximum possible
+#    score?
+#
+# 3. Build a tiny "search": pick ONE query sentence, and a list of 3-4
+#    candidate sentences (only one should genuinely relate to the query).
+#    Embed the query and every candidate, compute cosine_similarity()
+#    between the query and each candidate, and print out which candidate
+#    scored highest. This is the actual core mechanic behind RAG
+#    (Phase 6) -- you just built real semantic search by hand.
+#
+# 4. In your own words: why do we DIVIDE by both magnitudes instead of
+#    just using the raw dot_product() as the similarity score? (Hint:
+#    imagine vector A and a scaled-up copy of it, "2 * A", where every
+#    single number is doubled -- same DIRECTION, same meaning. What would
+#    happen to the raw dot product if one of the vectors got bigger, even
+#    though the actual meaning didn't change at all?)
+
+
+     
+sentence_d = "For the lust of women is the root of creation."
+sentence_e = "Men will do anything for women."
+sentence_f = "Money provides humans with all that they need."
+
+
+vector_d = get_embedding(sentence_d)
+vector_e = get_embedding(sentence_e)
+vector_f = get_embedding(sentence_f)
+
+
+similarity_de = cosine_similarity(vector_d, vector_e)
+similarity_df = cosine_similarity(vector_d, vector_f)
+
+
+print("---Cosine similarity---")
+print(f"D:{sentence_d}")
+print(f"E:{sentence_e}")
+print(f"F:{sentence_f}")
+print(f"\nSimilarity(D,E) = {similarity_de:.4f} (similar meaning, different words)")
+print(f"Similarity(D,F) = {similarity_df:.4f} (unrelated topics)")
+
+
+if similarity_de > similarity_df:
+    print("\nProven: D and E ARE closer together than D and F.")
+else:
+    print("\nUnexpected -- but the math itself is still correct, just check the sentences.")
+
+
+# -----The vector Mirror question----
+# The goal in comparing vectors is to find wholeness , the mirror concept, true definition of accuracy.
+# Asking "does this thing point in the same direction of itself?" finding the 1.0(~1.0).
+# Its all about definition. Basically True or false, not in the boolean concept,
+#but in self defining.
+
+
+# ("---Assignment 3---")
+
+
+query = "Is data and computer science is the foundation of the Universe?"
+
+
+canidates = [
+    "The earth is round.",
+    "Jupiter rotates around the sun.",
+    "A money machine counts money fast.",
+    "The more we study the Universe we learn that numbers and information guides our understanding.",
+]
+
+
+query_vec = get_embedding(query, input_type="query")
+canidate_vecs = [get_embedding(c) for c in canidates]
+
+
+scores = []
+for c, vec in zip(canidates, canidate_vecs):
+    score = cosine_similarity(query_vec, vec)
+    scores.append((c, score))
+
+
+print("\n---Semantic Search Results---")
+for c, s in scores:
+    print(f"{s:.4f} -> {c}")
+
+
+best = max(scores, key=lambda x: x[1])
+print(f"\nMost relevant: {best[0]}")
+
+
+# the larger number would fool "dot-product" into believing its more similar jsut based on size.
+# we divide by magnitudes so bbig vectors dont fake and lookj more similar than they really are.
+
+
+CHAPTER 35
+
+"""
+LESSON 35 (CAPSTONE): A real CLI chatbot with actual conversation memory
+
+
+This is the payoff for lessons 30-31. Nothing new to import, nothing new
+to learn syntax-wise -- this is 100% about COMBINING things you already
+have: ask() from lesson 31, input()/while loops from Phase 1, and
+list.append() from Phase 1.
+
+
+The one core idea, restated from lesson 30's exercise 4: the model has NO
+memory of its own. Every single call, you resend the ENTIRE conversation
+so far. "Remembering" isn't something the model does -- it's something
+YOUR CODE does, by keeping a growing list and handing the whole thing back
+every time.
+
+
+The pattern, every turn:
+    1. Get the user's new message with input()
+    2. Call ask(), passing the FULL conversation_history so far
+    3. Append the user's message AND the model's reply to
+       conversation_history -- so NEXT turn, the model can "see" this
+       exchange too
+    4. Print the reply, loop back to step 1
+"""
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+url = "https://api.anthropic.com/v1/messages"
+
+
+headers = {
+    "x-api-key": api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+
+
+def ask(user_message, system_prompt=None, messages_history=None, max_tokens=300):
+    """Same helper from lessons 31-32 -- sends one request, returns reply text."""
+    messages = list(messages_history) if messages_history else []
+    messages.append({"role": "user", "content": user_message})
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+
+
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+
+
+# --- Demo: two hardcoded turns, proving history actually grows and gets used ---
+conversation_history = []
+
+
+# Turn 1
+user_msg_1 = "My name is Roy."
+reply_1 = ask(user_msg_1, messages_history=conversation_history)
+print(f"You: {user_msg_1}")
+print(f"Bot: {reply_1}")
+
+
+conversation_history.append({"role": "user", "content": user_msg_1})
+conversation_history.append({"role": "assistant", "content": reply_1})
+
+
+# Turn 2 -- does the model remember, using ONLY conversation_history as proof?
+user_msg_2 = "What's my name?"
+reply_2 = ask(user_msg_2, messages_history=conversation_history)
+print(f"\nYou: {user_msg_2}")
+print(f"Bot: {reply_2}")
+
+
+conversation_history.append({"role": "user", "content": user_msg_2})
+conversation_history.append({"role": "assistant", "content": reply_2})
+
+
+print(f"\n(conversation_history now holds {len(conversation_history)} messages)")
+
+
+# --- YOUR TURN: build the REAL, interactive chatbot ---
+# Take the exact pattern from the demo above and wrap it in a loop:
+#
+# 1. Start with a fresh conversation_history = []
+# 2. Loop forever (while True). Each time through:
+#    a. Get the user's message with input("You: ")
+#    b. If they typed "quit", print "Goodbye!" and break out of the loop
+#    c. Call ask(user_input, messages_history=conversation_history)
+#    d. Print "Bot: <reply>"
+#    e. Append BOTH the user's message and the bot's reply to
+#       conversation_history (user first, then assistant) so the NEXT
+#       loop iteration's ask() call sees this exchange too
+# 3. Test it for real: tell it something in one message (your name, a
+#    fact about yourself, a number), then ask about it several messages
+#    LATER in the same run. Paste the full real conversation proving it
+#    actually remembered -- not just a single exchange.
+#
+# 4 (bonus). Give your chatbot a personality with a system_prompt (like
+#    lesson 31) -- pass the SAME system_prompt into every ask() call in
+#    the loop so its personality stays consistent turn after turn.
+
+
+
+

@@ -1,0 +1,472 @@
+# Lesson 13: List & Dict Comprehensions
+
+
+# --- Notes ---
+# A comprehension is a shorthand way to build a list (or dict) from a
+# loop, in one line, instead of several.
+#
+# The long way (a regular for loop):
+# numbers = [1, 2, 3, 4]
+# doubled = []
+# for n in numbers:
+#     doubled.append(n * 2)
+#
+# The short way (a list comprehension) - does the exact same thing:
+# doubled = [n * 2 for n in numbers]
+#
+# Read it as: "neach * 2, for each n in numbers" - same order as English.
+
+
+# --- Exercise 1 ---
+# Using the numbers list below, write a list comprehension called
+# "squared" that contains each number squared (n * n).
+
+
+numbers = [1, 2, 3, 4, 5]
+
+
+squared= [n*n for n in numbers]
+print(squared)
+
+
+squares_dict = {n: n * n for n in numbers}
+print(squares_dict)
+
+
+evens= [n for n in numbers if n%2 == 0]
+print(evens)
+
+# Lesson 14: Iterators & Generators
+
+
+# --- Notes ---
+# A generator is a special kind of function that produces values one
+# at a time, instead of building a whole list in memory at once.
+# It uses "yield" instead of "return".
+#
+# Example:
+# def count_up_to(max):
+#     n = 1
+#     while n <= max:
+#         yield n
+#         n += 1
+#
+# for number in count_up_to(5):
+#     print(number)
+#
+# This prints 1, 2, 3, 4, 5 - one at a time. Each time the loop asks
+# for the next value, the function resumes right where it left off
+# (right after "yield"), instead of starting over.
+
+
+# --- Exercise 1 ---
+# Write a generator function called countdown(n) that yields numbers
+# from n down to 1 (e.g. countdown(3) yields 3, then 2, then 1).
+# Then use a for loop to print each value it yields.
+
+
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+
+
+
+for value in countdown(5):
+    print(value)
+
+
+# Lesson 15: Decorators
+
+
+# --- Notes ---
+# A decorator is a function that wraps another function, adding extra
+# behavior before/after it runs, without changing the original function's
+# code. You apply it with @decorator_name right above a function.
+#
+# Example:
+# def shout(func):
+#     def wrapper():
+#         print("Before the function runs!")
+#         func()
+#         print("After the function runs!")
+#     return wrapper
+#
+# @shout
+# def greet():
+#     print("Hello!")
+#
+# greet()
+# # Output:
+# # Before the function runs!
+# # Hello!
+# # After the function runs!
+#
+# "@shout" above "def greet():" means: replace greet with shout(greet).
+# Now calling greet() actually runs the wrapper, which runs your
+# original code in the middle.
+
+
+# --- Exercise 1 ---
+# Write a decorator called log_it that prints "Running the function..."
+# before calling the wrapped function, and "Done!" after.
+# Apply it to a function called say_hi() that just prints "Hi!".
+# Then call say_hi() and see what happens.
+
+
+def log_it(func):
+    def wrapper():
+        print("Running the function")
+        func()
+        print("Done!")
+    return wrapper
+
+
+@log_it
+def say_hi():
+    print("Hi!")
+
+
+say_hi()
+
+
+# Lesson 16: Context Managers
+
+
+# --- Notes ---
+# You've already used a context manager without knowing the name for it:
+#
+# with open("notes.txt", "w") as f:
+#     f.write("hello")
+#
+# "with" automatically handles setup and cleanup - here, opening the
+# file, and automatically closing it when the block ends, even if an
+# error happens inside. That's what a "context manager" is: something
+# that guarantees cleanup happens.
+#
+# You can build your own using a class with __enter__ and __exit__:
+#
+# class Timer:
+#     def __enter__(self):
+#         print("Starting...")
+#         return self
+#
+#     def __exit__(self, exc_type, exc_value, traceback):
+#         print("Done, cleaning up.")
+#
+# with Timer():
+#     print("Doing some work")
+#
+# Output:
+# Starting...
+# Doing some work
+# Done, cleaning up.
+#
+# __enter__ runs when the "with" block starts. __exit__ runs when it
+# ends - always, even if the code inside crashes.
+
+
+# --- Exercise 1 ---
+# Build the Timer class above exactly as shown, then use it in a
+# "with" block that prints "Doing some work" inside.
+
+
+class Timer():
+    def __enter__(self):
+        print("Starting...")
+        return self
+   
+    def __exit__(self, exe_type, exe_value, traceback):
+        print("Done, cleaning up.")
+
+
+with Timer():    print("Doing some work")
+
+# Lesson 17: Virtual Environments & Packaging Basics
+# This lesson is done in the TERMINAL, not by running this file.
+# Read the notes and follow along in VS Code's terminal.
+
+
+# --- Notes: why virtual environments? ---
+# Every Python project can need different versions of different
+# packages (libraries). A virtual environment ("venv") is an isolated,
+# self-contained copy of Python just for one project, so installing
+# something for Project A never breaks Project B.
+
+
+# --- Step 1: create a venv ---
+# In the VS Code terminal, in your Py-master folder, run:
+#   python -m venv venv
+# This creates a folder called "venv" containing an isolated Python.
+
+
+# --- Step 2: activate it ---
+# Windows (PowerShell):
+#   venv\Scripts\activate
+# You'll know it worked because your terminal prompt will show (venv)
+
+
+# at the start of the line.
+
+
+# --- Step 3: install a package ---
+# With the venv active, run:
+#   pip install requests
+# This installs the "requests" library only inside this venv, not
+# system-wide.
+
+
+# --- Step 4: save your dependencies ---
+# Run:
+#   pip freeze > requirements.txt
+# This creates a file listing every package your project needs, so
+# anyone else (or future you) can recreate the exact same setup with:
+#   pip install -r requirements.txt
+
+
+# --- Step 5: deactivate ---
+# When done working, run:
+#   deactivate
+# This exits the venv and returns to your normal system Python.
+
+
+# --- Exercise ---
+# Follow steps 1-4 in your terminal for this Py-master folder.
+# Once requirements.txt exists, come back and tell me what it says.
+
+
+
+
+
+
+
+# Phase 3 Capstone: CLI To-Do List
+# Combines: functions, file handling, error handling, comprehensions,
+# and loops - a real command-line tool you can actually use.
+
+
+# --- Step 1 ---
+# Write a function load_tasks() that tries to open "tasks.txt" and
+# read it into a list (one line per task, strip newline characters).
+# If the file doesn't exist yet, catch FileNotFoundError and return
+# an empty list [] instead of crashing.
+#
+# Hint:
+# def load_tasks():
+#     try:
+#         with open("tasks.txt", "r") as f:
+#             return [line.strip() for line in f]
+#     except FileNotFoundError:
+#         return []
+
+
+
+
+# --- Step 2 ---
+# Write a function save_tasks(tasks) that writes the list of tasks
+# back to "tasks.txt", one per line.
+#
+# Hint:
+# def save_tasks(tasks):
+#     with open("tasks.txt", "w") as f:
+#         for task in tasks:
+#             f.write(task + "\n")
+
+
+
+
+# --- Step 3 ---
+# Write a function add_task(tasks, task) that appends task to the
+# tasks list, then calls save_tasks(tasks).
+
+
+
+
+# --- Step 4 ---
+# Write a function list_tasks(tasks) that prints each task with a
+# number in front (1, 2, 3...) using enumerate, like this:
+#
+# for i, task in enumerate(tasks, start=1):
+#     print(i, task)
+#
+# (enumerate gives you both a position number and the item, together,
+# in one loop - start=1 means counting starts at 1, not 0)
+
+
+
+
+# --- Step 5: put it together ---
+# 1. tasks = load_tasks()
+# 2. add_task(tasks, "Learn Python")
+# 3. add_task(tasks, "Build a CLI tool")
+# 4. list_tasks(tasks)
+# 5. Run the file TWICE. The second time, load_tasks() should already
+#    find your saved tasks from the first run in tasks.txt.
+
+
+def load_tasks():
+    try:
+        with open("task.txt", "r") as f:
+            return[line.strip() for line in f]
+    except FileNotFoundError:
+        return []
+
+
+def save_tasks(tasks):
+    with open("task.txt", "w") as f:
+        for task in tasks:
+            f.write(task + "\n")
+
+
+def add_task(tasks, task):
+    tasks.append(task)
+    save_tasks(tasks)
+
+
+def list_tasks(tasks):
+    for i, task in enumerate(tasks, start=1):
+        print(i, task)
+
+
+tasks = load_tasks()
+add_task(tasks, "Learn Python")
+add_task(tasks, "Build a CLI tool")
+list_tasks(tasks)
+
+
+
+SQL—----------------------SQL—------------SQL
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cusor = conn.cursor()
+
+
+print("Connected to database.")
+
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+print("Connected to database.")
+
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+print("Connected to database.")
+
+create_tables
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS people (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+name TEXT NOT NULL,
+age INTEGER NOT NULL,
+city TEXT NOT NULL
+);
+""")
+
+
+conn.commit()
+print("Table created.")
+
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS people(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+name TEXT NOT NULL,
+age INTEGER NOT NULL,
+city TEXT NOT NULL
+);
+""")
+
+
+conn.commit()
+print("Table create.")
+
+
+INSERT_DATA
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+cursor.execute("""
+INSERT INTO people (name, age, city)
+VALUES ('KING', 28, 'Dallas');
+""")
+
+
+cursor.execute("""
+INSERT INTO people (name, age, city)
+VALUES ('James', 42, 'Dallas');
+""")
+
+
+cursor.execute("""
+INSERT INTO people (name, age, city)
+VALUES ('Maria', 19, 'Austin');
+""")
+
+
+conn.commit()
+print("Data inserted.")
+
+
+import sqlite3
+
+
+conn = sqlite3.connect("app.db")
+cursor = conn.cursor()
+
+
+cursor.execute("""
+INSERT INTO people(name, age, city)
+VALUES ('KING', 28, 'Dallas');
+""")
+
+
+cursor.execute("""
+INSERT INTO people (name, age, city)
+VALUES ('James', 42, 'Dallas');
+""")
+
+
+cursor.execute("""
+INSERT INTO people (name, age, city)
+VALUES ('Maria', 19, 'Austin');
+""")
+
+
+conn.commit()
+print("Data inserted.")
+

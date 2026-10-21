@@ -1,0 +1,2473 @@
+"""
+LESSON 42: The retrieval pipeline -- turning "search" into one clean function
+
+
+Lessons 38-41 built every PIECE of this by hand, one at a time:
+    - chunk_by_size()    -- split a document into pieces (lesson 38)
+    - get_embedding()    -- turn text into a vector (lesson 33)
+    - embed_chunks()     -- pair text + vector together (lesson 39)
+    - Chroma collection  -- store + search those pairs (lesson 41)
+
+
+RETRIEVAL is just the name for the step where, given a user's QUESTION, you:
+    1. Embed the question (turn it into a vector, same as any other text)
+    2. Search your vector store for the closest chunks
+    3. Return the chunks' TEXT (not the vectors -- an LLM reads text, not
+       floats)
+
+
+You've already done this exact sequence three separate times (once by hand
+with cosine_similarity in lesson 34, once with FAISS in lesson 40, once
+with Chroma in lesson 41). The only thing new today is wrapping it into
+ONE function -- retrieve() -- so the rest of your program (and eventually
+the LLM call in lesson 44/45) can just ask a question and get back clean
+text, without caring how the search happens underneath.
+
+
+This is the exact shape every real RAG system uses:
+    question -> retrieve() -> context chunks -> hand to LLM as context
+"""
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39/40/41."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def build_collection(document, collection_name, chunk_size=150, overlap=30):
+    """Chunks a document, embeds every chunk, and loads it into a fresh
+    Chroma collection. Same pattern as lesson 41's demo, just wrapped into
+    one function so we can call it once and move on to the new part."""
+    chunks = chunk_by_size(document, chunk_size=chunk_size, overlap=overlap)
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    ids = [f"{collection_name}_{i}" for i in range(len(chunks))]
+
+
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+    collection.add(ids=ids, documents=chunks, embeddings=embeddings)
+    return collection
+
+
+
+
+def retrieve(query, collection, k=3):
+    """THE NEW IDEA. Given a plain-English question and a Chroma
+    collection, this does the full retrieval sequence and hands back just
+    the TEXT of the top-k matching chunks -- nothing else. This is the
+    function an LLM call will eventually reach for in lesson 44/45."""
+    query_embedding = get_embedding(query, input_type="query")
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    return results["documents"][0]
+
+
+
+
+# --- Demo: build a collection once, then retrieve() from it repeatedly ---
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge."
+)
+
+
+collection = build_collection(document, "retrieval_demo")
+print(f"--- Collection built: {collection.count()} chunks ---")
+
+
+question = "What was the first known library?"
+top_chunks = retrieve(question, collection, k=2)
+
+
+print(f"\n--- retrieve() results for: '{question}' ---")
+for i, chunk in enumerate(top_chunks, start=1):
+    print(f"\nChunk {i}:")
+    print(chunk)
+
+
+# --- YOUR TURN ---
+# 1. Build your own collection with build_collection() using a document of
+#    your choice (at least 4 chunks). Print how many chunks got added.
+#
+# 2. Call retrieve() with a question about your document and k=1. Print
+#    the single chunk you got back. Confirm it's actually relevant.
+#
+# 3. Call retrieve() again on the SAME question, but this time with k=3.
+#    Print all 3 chunks. Notice that retrieve() returns a plain list of
+#    TEXT STRINGS now -- not a results dict with ids/distances/metadatas
+#    like collection.query() gave you directly in lesson 41. Why might a
+#    simpler return value (just the text) be more useful for the next
+#    step in a RAG pipeline (handing context to an LLM)?
+#
+# 4. In your own words: retrieve() hides three real steps (embed the
+#    question, search the collection, pull out just the text) behind one
+#    function call. Why is that useful, now that you've written those
+#    three steps by hand several times already in lessons 34, 40, and 41?
+
+
+# 1. ---My own Collection---
+
+
+my_document = (
+
+
+    "Python is a popular programming language known for its readability. "
+    "It is widely used in web development, data science, and automation. "
+    "Flask is a lightweight web framework for Python that makes it easy "        "to build APIs and web apps. "
+    "Embeddings are numeric representations of text that capture meaning, "
+    "and they are used in semantic search and recommendation systems. "
+)
+
+
+
+
+my_collection = build_collection(my_document, "my_demo", chunk_size=120, overlap=30)
+print(f"--- My collection built: {my_collection.count()} chunks ---")
+
+
+# 2. retrieve() with k=1
+my_question = "WHat is Flask used for?"
+top_chunk_k1 = retrieve(my_question, my_collection, k=1)
+
+
+print(f"\n--- retrieve() results for k=1: '{my_question}' ---")
+print(top_chunk_k1[0]) #single chunk
+
+
+# 3. retrieve() again with k=3
+top_chunks_k3 = retrieve(my_question, my_collection, k=3)
+
+
+print(f"\n--- retrieve() results for k3: '{my_question}' ---")
+for i, chunk in enumerate(top_chunks_k3, start=1):
+    print(f"\nChunk {i}:")
+    print(chunk)
+
+
+    # answer to #3. because LLMs only care about clean readable text, not data, metadata, or floats of vectors.
+    #only the useable text to deliver to the user.
+    # 4. one word, CONVEINENCE.     retrieve(): is a helper collaborating a multi process funtion into one.
+
+
+
+
+# --- BONUS: METADATA -- the one blueprint concept you haven't used yet ---
+# Every collection.add() call above passed ids, documents, and embeddings --
+# never metadata. Metadata is just a dict of EXTRA facts about each chunk
+# (which document it came from, a page number, a category, whatever you
+# want) that rides along with it in Chroma. The real payoff: you can FILTER
+# on metadata BEFORE the similarity search even runs -- e.g. "only search
+# chunks where source == 'basketball_doc'" -- something plain vector search
+# alone can't do. That's why lesson 41's results dict always showed
+# 'metadatas': [[None]] -- you never gave it any.
+
+
+def build_collection_with_metadata(document, collection_name, source_name,
+                                    chunk_size=150, overlap=30):
+    """Same as build_collection(), but attaches a metadata dict to every
+    chunk: which document it came from, and its position in that document."""
+    chunks = chunk_by_size(document, chunk_size=chunk_size, overlap=overlap)
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    ids = [f"{collection_name}_{i}" for i in range(len(chunks))]
+    metadatas = [{"source": source_name, "chunk_index": i} for i in range(len(chunks))]
+
+
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+    collection.add(
+        ids=ids,
+        documents=chunks,
+        embeddings=embeddings,
+        metadatas=metadatas,  # <-- the new piece
+    )
+    return collection
+
+
+
+
+# --- Demo: TWO documents in ONE collection, then filter by source ---
+python_doc = (
+    "Python was created by Guido van Rossum and released in 1991. "
+    "It emphasizes code readability with its notable use of significant "
+    "whitespace. Python supports multiple programming paradigms."
+)
+
+
+basketball_doc = (
+    "Basketball was invented by James Naismith in 1891 as a way to keep "
+    "athletes active indoors during winter. The original game used a "
+    "peach basket and a soccer ball."
+)
+
+
+meta_client = chromadb.Client()
+meta_collection = meta_client.create_collection(name="metadata_demo")
+
+
+for doc_text, source in [(python_doc, "python_doc"), (basketball_doc, "basketball_doc")]:
+    m_chunks = chunk_by_size(doc_text, chunk_size=100, overlap=20)
+    m_embeddings = [get_embedding(c) for c in m_chunks]
+    m_ids = [f"{source}_{i}" for i in range(len(m_chunks))]
+    m_metadatas = [{"source": source, "chunk_index": i} for i in range(len(m_chunks))]
+    meta_collection.add(ids=m_ids, documents=m_chunks, embeddings=m_embeddings, metadatas=m_metadatas)
+
+
+print(f"\n--- Metadata demo collection: {meta_collection.count()} chunks from 2 documents ---")
+
+
+meta_question = "Who invented this?"
+meta_question_embedding = get_embedding(meta_question, input_type="query")
+
+
+# WITHOUT a filter -- searches across BOTH documents
+results_all = meta_collection.query(query_embeddings=[meta_question_embedding], n_results=2)
+print("\n--- No filter (searches both documents) ---")
+for doc, meta in zip(results_all["documents"][0], results_all["metadatas"][0]):
+    print(f"[{meta['source']}] {doc}")
+
+
+# WITH a filter -- only searches chunks whose metadata source == "basketball_doc"
+results_filtered = meta_collection.query(
+    query_embeddings=[meta_question_embedding],
+    n_results=2,
+    where={"source": "basketball_doc"},
+)
+print("\n--- Filtered to source == 'basketball_doc' ---")
+for doc, meta in zip(results_filtered["documents"][0], results_filtered["metadatas"][0]):
+    print(f"[{meta['source']}] {doc}")
+
+
+# --- YOUR TURN ---
+# 1. Build your own metadata-tagged collection with
+#    build_collection_with_metadata() using TWO different documents of your
+#    choice (like the demo's python_doc/basketball_doc), each with its own
+#    source name.
+#
+# 2. Query it WITHOUT a where filter. Print each result's text alongside
+#    its metadata's "source" value, so you can see chunks from BOTH
+#    documents mixed together in the results.
+#
+# 3. Query it AGAIN with a where={"source": ...} filter set to just ONE of
+#    your two source names. Confirm every result that comes back belongs
+#    only to that source.
+#
+# 4. In your own words: wh does metadata matter for retrieval in a real
+#    application -- one with hundreds of documents, not just two tiny demo
+#    ones? What might you filter on (date, author, department, file type)?
+
+
+
+
+doc_one =(
+    "Solar energy is produced when sunlight is converted into electricity. "
+    "Modern solar panels use photovoltaic cells to capture and transform light. "
+    "Solar power is considered one of the cleanest renewable energy sources. "
+    "Many homes reduce electricity costs by installing rooftop solar systems."
+)
+
+
+doc_two = (
+    "The first widely recognized home video game console was the Magnavox Odyssey, released in 1972. "
+    "Later consoles like the Atari 2600 helped popularize cartridge‑based games. "
+    "Nintendo revolutionized the industry with the NES in 1985. "
+    "Today, consoles feature advanced graphics, online play, and digital game libraries."
+)
+
+
+meta_client = chromadb.Client()
+meta_collection = meta_client.create_collection(name="metadata_demo_2")
+
+
+for doc_text, source in [(doc_one, "doc_one"), (doc_two, "doc_two")]:
+    m_chunks = chunk_by_size(doc_text, chunk_size=100, overlap=20)
+    m_embeddings = [get_embedding(c) for c in m_chunks]
+    m_ids = [f"{source}_{i}" for i in range(len(m_chunks))]
+    m_metadatas = [{"source": source, "chunk_index": i} for i in range(len(m_chunks))]
+    meta_collection.add(ids=m_ids, documents=m_chunks, embeddings=m_embeddings, metadatas=m_metadatas)
+
+
+print(f"\n--- Metadata doc collection: {meta_collection.count()} chunks from 2 documents ---")
+
+
+meta_question = "How is solar energy produced?"
+meta_question_embedding = get_embedding(meta_question, input_type="query")
+
+
+results_all = meta_collection.query(query_embeddings=[meta_question_embedding], n_results=2)
+print("\n--- No filter (searches both documents) ---")
+for doc, meta in zip(results_all["documents"][0], results_all["metadatas"][0]):
+    print(f"[{meta['source']}] {doc}")
+
+
+results_filtered = meta_collection.query(
+    query_embeddings=[meta_question_embedding],
+    n_results=2,
+    where={"source": "doc_one"},
+)
+
+
+print("\n--- Filtered to source == 'doc_one' ---")
+for doc, meta in zip(results_filtered["documents"][0], results_filtered["metadatas"][0]):
+    print(f"[{meta['source']}] {doc}")
+
+43–
+"""
+LESSON 43: Reranking -- a second, smarter pass over your search results
+
+
+Every retrieval you've done so far (lessons 34, 40, 41, 42) works the same
+way: embed the query, embed the documents, compare vectors with math
+(cosine similarity / L2 distance), and return whichever chunks are
+numerically closest. That's FAST and CHEAP, but it has a real limitation --
+it compares the query and each document SEPARATELY, as two vectors that
+never actually "look at" each other. Two sentences can end up with
+similar-looking vectors even when one is a much better answer to the
+question than the other.
+
+
+A RERANKER fixes this by being slower and smarter, on purpose, but only
+for a SHORTLIST. The real pipeline looks like:
+
+
+    1. Cheap vector search (retrieve() from lesson 42) -- pull back a
+       generous shortlist, say the top 5-10 candidates, fast, over your
+       whole collection (could be millions of chunks).
+    2. Reranker -- a different kind of model (a "cross-encoder") that
+       reads the QUERY and EACH CANDIDATE DOCUMENT TOGETHER, side by side,
+       and outputs a fresh relevance score per pair. Much more accurate,
+       but too slow/expensive to run over an entire collection -- that's
+       why it only ever touches the small shortlist step 1 already
+       narrowed things down to.
+    3. Keep only the reranker's own top-k -- these become the chunks you
+       actually hand to the LLM as context.
+
+
+This is exactly the "chunk -> embed -> store -> retrieve -> RERANK -> LLM"
+order from lesson 38's Q&A. Cheap search narrows a huge pile down to a
+handful; the reranker spends its extra accuracy only on that handful.
+
+
+We're using Voyage's real reranker API (same account as your embeddings):
+    POST https://api.voyageai.com/v1/rerank
+    body: {"query": ..., "documents": [...], "model": "rerank-2.5-lite",
+           "top_k": ..., "return_documents": true}
+    response: {"data": [{"index": ..., "relevance_score": ..., "document": ...}, ...]}
+    (already sorted by the API, highest relevance_score first)
+"""
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+embed_url = "https://api.voyageai.com/v1/embeddings"
+rerank_url = "https://api.voyageai.com/v1/rerank"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39/40/41/42."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(embed_url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def build_collection(document, collection_name, chunk_size=150, overlap=30):
+    """Same helper from lesson 42."""
+    chunks = chunk_by_size(document, chunk_size=chunk_size, overlap=overlap)
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    ids = [f"{collection_name}_{i}" for i in range(len(chunks))]
+
+
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+    collection.add(ids=ids, documents=chunks, embeddings=embeddings)
+    return collection
+
+
+
+
+def retrieve(query, collection, k=3):
+    """Same helper from lesson 42 -- the CHEAP first pass."""
+    query_embedding = get_embedding(query, input_type="query")
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    return results["documents"][0]
+
+
+
+
+def rerank(query, documents, top_k=3, model="rerank-2.5-lite"):
+    """THE NEW IDEA. Sends the query and a SHORTLIST of candidate documents
+    to Voyage's reranker. Unlike get_embedding(), which scores the query and
+    a document separately, the reranker looks at each (query, document) PAIR
+    together and returns a fresh, more accurate relevance_score per pair --
+    already sorted, best match first."""
+    body = {
+        "query": query,
+        "documents": documents,
+        "model": model,
+        "top_k": top_k,
+        "return_documents": True,
+    }
+    time.sleep(21)  # same free-tier rate limit applies to this endpoint
+    response = requests.post(rerank_url, headers=headers, json=body)
+    data = response.json()
+    return data["data"]  # list of {"index", "relevance_score", "document"}
+
+
+
+
+# --- Demo: cheap retrieve() for a shortlist, then rerank() to refine it ---
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge. Modern libraries now also lend ebooks, host "
+    "community events, and provide free internet access to the public."
+)
+
+
+collection = build_collection(document, "rerank_demo")
+print(f"--- Collection built: {collection.count()} chunks ---")
+
+
+question = "What was the first known library?"
+
+
+# Step 1: cheap vector search -- pull a generous shortlist (more than we
+# actually need, on purpose, so the reranker has real work to do)
+shortlist = retrieve(question, collection, k=4)
+print(f"\n--- Step 1: retrieve() shortlist ({len(shortlist)} chunks) ---")
+for i, chunk in enumerate(shortlist, start=1):
+    print(f"{i}. {chunk[:70]}...")
+
+
+# Step 2: rerank that shortlist down to the real top matches
+reranked = rerank(question, shortlist, top_k=2)
+print(f"\n--- Step 2: rerank() results (top {len(reranked)}) ---")
+for result in reranked:
+    print(f"\nRelevance score: {result['relevance_score']:.4f}")
+    print(result["document"])
+
+
+# --- YOUR TURN ---
+# 1. Build your own collection (reuse a document from lesson 41/42, or
+#    write a new one). Ask a question, and retrieve() a shortlist of at
+#    least 4 chunks. Print the shortlist.
+#
+# 2. Call rerank() on that shortlist with top_k=2. Print each result's
+#    relevance_score and document text. Are they in the same order the
+#    shortlist came back in from retrieve(), or did reranking change it?
+#
+# 3. Print just the relevance_score values from your reranked results.
+#    Are they sorted highest-to-lowest? (Check the docstring above --
+#    Voyage's API already sorts them for you before it responds.)
+#
+# 4. In your own words: why does it make sense to run the EXPENSIVE
+#    reranker only on the SHORTLIST that retrieve() already narrowed down,
+#    instead of running it on your entire collection directly? What would
+#    happen to cost/speed if you skipped step 1 and reranked everything?
+
+
+
+
+my_document = (
+
+
+    "Python is a popular programming language known for its readability. "
+    "It is widely used in web development, data science, and automation. "
+    "Flask is a lightweight web framework for Python that makes it easy "        "to build APIs and web apps. "
+    "Embeddings are numeric representations of text that capture meaning, "
+    "and they are used in semantic search and recommendation systems. "
+)
+
+
+collection  = build_collection(my_document, "rerank_demo")
+print(f"---Collection built: {collection.count()} chunks ---")
+
+
+question = "What does embedding represent?"
+
+
+small_list = retrieve(question, collection, k=4)
+print(f"\n --- First step: retrieve() small_list ({len(small_list)} chunks) ---")
+for i, chunk in enumerate(small_list, start=1):
+    print(f"{i}. {chunk[:70]}...")
+
+
+reranked = rerank(question, small_list, top_k=2)
+print(f"\n ---Second step: rerank() results (top{len(reranked)}) ---")
+for result in reranked:
+    print(f"\nRelevance score: {result['relevance_score']:.4f}")
+    print(result["document"])
+
+
+#assignment #4 answer,,its like a sophistcated process of elimination.
+# allowing the cheap vector to do the heavy lifting to save "money"
+# and then apllying rerank to produce the best(k) results for the llm to deliver to the user.
+
+44
+"""
+LESSON 44: RAG evaluation -- how do you know your pipeline actually works?
+
+
+Lessons 38-43 built a full RAG pipeline: chunk -> embed -> store -> retrieve
+-> rerank. But how do you know it's actually GOOD? "It printed something
+that looked relevant" isn't a real answer once you're building something
+real. RAG evaluation has TWO separate questions, and they need TWO
+separate checks:
+
+
+    1. RETRIEVAL quality: did the pipeline pull back the RIGHT chunk(s) for
+       a given question? This has nothing to do with the LLM yet -- it's
+       purely "did retrieve()/rerank() find the right needle in the
+       haystack." You can measure this with plain code, no AI judgment
+       needed, IF you know the right answer ahead of time (a "ground
+       truth" test set).
+
+
+    2. ANSWER quality: once you hand the retrieved chunks to an LLM and it
+       writes an answer, is that answer actually TRUE to what the context
+       said? An LLM can retrieve the perfect chunk and still write an
+       answer that drifts away from it ("hallucination") -- so this needs
+       a different check than retrieval quality does.
+
+
+--- PART 1: Retrieval evaluation (hit rate @ k) ---
+You build a small set of TEST CASES -- questions where you already know
+which chunk SHOULD answer them (because you wrote the document yourself).
+Then you run retrieve() for each question and check: is the expected
+chunk's ID actually somewhere in the top-k results? The fraction that hit
+is your "hit rate @ k" -- a real, standard retrieval metric.
+
+
+--- PART 2: Answer evaluation (LLM-as-judge) ---
+You generate a real answer with Claude, using the retrieved chunks as
+context (this is the "G" in RAG -- generation). Then you make a SECOND
+Claude call whose only job is to grade the first answer: does it stay
+faithful to the provided context, or does it say things the context never
+supported? This is called "LLM-as-judge" -- using a model to grade another
+model's output against structured, checkable criteria (same
+ask_for_json-style pattern from lesson 32).
+"""
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+embed_url = "https://api.voyageai.com/v1/embeddings"
+anthropic_url = "https://api.anthropic.com/v1/messages"
+
+
+voyage_headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+anthropic_headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39/40/41/42/43."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(embed_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def build_collection(document, collection_name, chunk_size=150, overlap=30):
+    """Same helper from lesson 42."""
+    chunks = chunk_by_size(document, chunk_size=chunk_size, overlap=overlap)
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    ids = [f"{collection_name}_{i}" for i in range(len(chunks))]
+
+
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+    collection.add(ids=ids, documents=chunks, embeddings=embeddings)
+    return collection
+
+
+
+
+def retrieve_with_ids(query, collection, k=3):
+    """Like lesson 42's retrieve(), but also hands back each chunk's ID --
+    evaluation needs the ID to check against a known correct answer."""
+    query_embedding = get_embedding(query, input_type="query")
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    return list(zip(results["ids"][0], results["documents"][0]))
+
+
+
+
+def ask_claude(user_message, system_prompt=None, max_tokens=300):
+    """Same ask() pattern from lessons 31/32/35/36/37."""
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": user_message}],
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+    response = requests.post(anthropic_url, headers=anthropic_headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+
+
+# =========================================================================
+# PART 1: Retrieval evaluation -- hit rate @ k
+# =========================================================================
+
+
+def evaluate_retrieval(test_cases, collection, k=3):
+    """test_cases is a list of {"question": ..., "expected_id": ...} dicts.
+    For each one, retrieves top-k and checks whether the expected chunk's
+    ID actually showed up. Prints each result, returns the overall hit rate."""
+    hits = 0
+    for case in test_cases:
+        results = retrieve_with_ids(case["question"], collection, k=k)
+        retrieved_ids = [chunk_id for chunk_id, _ in results]
+        hit = case["expected_id"] in retrieved_ids
+        hits += int(hit)
+        print(f"Q: {case['question']}")
+        print(f"  expected: {case['expected_id']}")
+        print(f"  retrieved: {retrieved_ids}")
+        print(f"  HIT" if hit else "  MISS")
+        print()
+    return hits / len(test_cases)
+
+
+
+
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge. Modern libraries now also lend ebooks, host "
+    "community events, and provide free internet access to the public."
+)
+
+
+collection = build_collection(document, "eval_demo")
+print(f"--- Collection built: {collection.count()} chunks ---")
+
+
+# Ground truth: we wrote this document ourselves, so we already know which
+# chunk index answers which question -- ids follow "eval_demo_<index>".
+test_cases = [
+    {"question": "What was the first known library?", "expected_id": "eval_demo_0"},
+    {"question": "What do modern libraries lend besides books?", "expected_id": "eval_demo_3"},
+]
+
+
+print("\n--- PART 1: Retrieval evaluation ---")
+hit_rate = evaluate_retrieval(test_cases, collection, k=2)
+print(f"Hit rate @ 2: {hit_rate:.2f}")
+
+
+# =========================================================================
+# PART 2: Answer evaluation -- generate an answer, then grade it
+# =========================================================================
+
+
+question = "What was the first known library?"
+top_chunks = [text for _, text in retrieve_with_ids(question, collection, k=2)]
+context = "\n".join(top_chunks)
+
+
+answer_prompt = (
+    f"Answer the question using ONLY the context below. "
+    f"If the context doesn't contain the answer, say so.\n\n"
+    f"Context:\n{context}\n\nQuestion: {question}"
+)
+answer = ask_claude(answer_prompt, max_tokens=150)
+print("\n--- PART 2: Generated answer ---")
+print(answer)
+
+
+judge_prompt = (
+    f"You are grading whether an AI's answer is faithful to the given "
+    f"context (i.e. it doesn't state anything the context doesn't support). "
+    f"Respond with ONLY valid JSON: "
+    f'{{"faithful": true or false, "reasoning": "one sentence"}}\n\n'
+    f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer: {answer}"
+)
+judgment = ask_claude(judge_prompt, max_tokens=150)
+print("\n--- LLM-as-judge verdict ---")
+print(judgment)
+
+
+# --- YOUR TURN ---
+# 1. Build your own collection (reuse a document from an earlier lesson, or
+#    write a new one -- at least 4 chunks). Write 2-3 test_cases dicts with
+#    real questions and the correct expected_id for each (check your
+#    collection's actual ids to get these right).
+#
+# 2. Run evaluate_retrieval() on your test cases with k=2. Print the hit
+#    rate. If anything MISSES, look at what WAS retrieved instead -- is it
+#    a chunking problem (the answer got split across a boundary) or an
+#    embedding problem (the question's wording doesn't match the chunk's)?
+#
+# 3. Pick one of your questions, generate a real answer with ask_claude()
+#    using your retrieved chunks as context, then grade it with the
+#    LLM-as-judge pattern. Print both the answer and the verdict.
+#
+# 4. In your own words: why do retrieval evaluation and answer evaluation
+#    need to be checked SEPARATELY, instead of just asking "does the final
+#    answer look right?" What could go wrong at the retrieval step that a
+#    good-looking final answer might hide from you?
+
+
+another_document = (
+    "Artificial intelligence is reshaping how people communicate, but the heart of the "
+"story is still human connection. As machines learn to interpret language, emotion, "
+"and intention, they become mirrors that reflect our patterns back to us, revealing "
+"how deeply social we are. AI can analyze conversations, detect subtle shifts in tone, "
+"and respond in ways that feel natural, yet its value comes from how it amplifies "
+"human relationships rather than replacing them. People use AI to practice difficult "
+"conversations, explore ideas they're afraid to voice aloud, or organize thoughts they "
+"struggle to express. In those moments, the technology becomes a bridge, not a barrier. "
+"At the same time, AI forces us to confront what connection truly means. A machine "
+"can simulate empathy, but it cannot experience it. It can generate comfort, but it "
+"cannot feel the warmth it offers. This contrast pushes humans to define the qualities "
+"that make our interactions meaningful: vulnerability, shared experience, and the "
+"unpredictable spark of genuine understanding. As AI grows more capable, the "
+"responsibility shifts to us to use it intentionally—supporting communication, "
+"expanding access to knowledge, and strengthening bonds rather than weakening "
+"them. In the end, AI's greatest contribution may be reminding us how much we need "
+"each other."
+)
+
+
+collection = build_collection(another_document, "demo_doc")
+print(f" --- Collection built: {collection.count()} chunks ---")
+
+
+test_cases = [
+    {"question": "What are the capabilities of AI?", "expected_id": "demo_doc_2"},
+    {"question": "What does Ai forces humans to do?", "expected_id": "demo_doc_5"},
+]
+hit_rate = evaluate_retrieval(test_cases, collection, k=2)
+print(f"Hit rate @ 2: {hit_rate:.2f}")
+
+
+
+
+question = "What are the capabilities of AI?"
+top_chunks = [text for _, text in retrieve_with_ids(question, collection, k=2)]
+context = "\n".join(top_chunks)
+
+
+answer_prompt = (
+    f"Answer the question using ONLY the context below. "
+    f"If the context doesn't contain the answer, say so.\n\n"
+    f"Context:\n{context}\n\nQuestion: {question}"
+)
+answer = ask_claude(answer_prompt, max_tokens=150)
+print("\n--- PART 2: Generated answer ---")
+print(answer)
+
+
+judge_prompt = (
+    f"You are grading whether an AI's answer is faithful to the given "
+    f"context (i.e. it doesn't state anything the context doesn't support). "
+    f"Respond with ONLY valid JSON: "
+    f'{{"faithful": true or false, "reasoning": "one sentence"}}\n\n'
+    f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer: {answer}"
+)
+judgment = ask_claude(judge_prompt, max_tokens=150)
+print("\n--- LLM-as-judge verdict ---")
+print(judgment)
+
+
+#answer to assignmet 4: its the fool-proof, fail-SAFE strat
+#that insures that the user is getting the best reliable response.
+
+
+
+
+
+
+45"""
+LESSON 45 CAPSTONE: Document Q&A bot -- the whole Phase 6 pipeline, wired
+together into one real program.
+
+
+This is the payoff for lessons 38-44. Every piece already exists in your
+head and in your other lesson files -- this capstone just wires them
+together into ONE reusable function, then a real interactive loop:
+
+
+    chunk_by_size()   -- lesson 38, split a document into pieces
+    get_embedding()   -- lesson 33, text -> vector
+    build_collection() -- lesson 42, chunk + embed + store in Chroma
+    retrieve_with_ids() -- lesson 44, cheap vector search shortlist
+    rerank()          -- lesson 43, sharpen the shortlist with a cross-encoder
+    ask_claude()      -- lesson 31/44, generate a real answer from context
+
+
+    document -> build_collection() [ONCE]
+    question -> retrieve() -> rerank() -> ask_claude() [EVERY question]
+
+
+The DEMO below shows this working end to end on one hardcoded question.
+YOUR job is to turn it into a real interactive bot: load the collection
+ONCE, then let a user ask as many questions as they want in a loop --
+same shape as lesson 35's chatbot, just answering FROM YOUR OWN DOCUMENT
+instead of from the model's general knowledge.
+"""
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+embed_url = "https://api.voyageai.com/v1/embeddings"
+rerank_url = "https://api.voyageai.com/v1/rerank"
+anthropic_url = "https://api.anthropic.com/v1/messages"
+
+
+voyage_headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+anthropic_headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39/40/41/42/43/44."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(embed_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def build_collection(document, collection_name, chunk_size=150, overlap=30):
+    """Same helper from lesson 42. Call this ONCE per document."""
+    chunks = chunk_by_size(document, chunk_size=chunk_size, overlap=overlap)
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    ids = [f"{collection_name}_{i}" for i in range(len(chunks))]
+
+
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+    collection.add(ids=ids, documents=chunks, embeddings=embeddings)
+    return collection
+
+
+
+
+def retrieve_with_ids(query, collection, k=4):
+    """Same helper from lesson 44 -- the cheap first pass."""
+    query_embedding = get_embedding(query, input_type="query")
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    return list(zip(results["ids"][0], results["documents"][0]))
+
+
+
+
+def rerank(query, documents, top_k=2, model="rerank-2.5-lite"):
+    """Same helper from lesson 43 -- sharpens the shortlist."""
+    body = {
+        "query": query,
+        "documents": documents,
+        "model": model,
+        "top_k": top_k,
+        "return_documents": True,
+    }
+    time.sleep(21)  # same free-tier rate limit applies to this endpoint
+    response = requests.post(rerank_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"]
+
+
+
+
+def ask_claude(user_message, system_prompt=None, max_tokens=300):
+    """Same ask() pattern from lessons 31/32/35/36/37/44."""
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": user_message}],
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+    response = requests.post(anthropic_url, headers=anthropic_headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+
+
+def answer_question(question, collection, shortlist_k=4, final_k=2):
+    """THE NEW IDEA -- this is the whole RAG pipeline in one call:
+    1. retrieve a cheap shortlist
+    2. rerank it down to the real top matches
+    3. hand those to Claude as context and generate a grounded answer
+    Returns the answer text AND the chunks that were actually used, so you
+    can show the user WHERE the answer came from."""
+    shortlist_results = retrieve_with_ids(question, collection, k=shortlist_k)
+    shortlist_texts = [text for _, text in shortlist_results]
+
+
+    reranked = rerank(question, shortlist_texts, top_k=final_k)
+    context_chunks = [r["document"] for r in reranked]
+    context = "\n".join(context_chunks)
+
+
+    prompt = (
+        f"Answer the question using ONLY the context below. "
+        f"If the context doesn't contain the answer, say so clearly.\n\n"
+        f"Context:\n{context}\n\nQuestion: {question}"
+    )
+    answer = ask_claude(prompt, max_tokens=200)
+    return answer, context_chunks
+
+
+
+
+# --- Demo: build a collection once, answer one question end to end ---
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge. Modern libraries now also lend ebooks, host "
+    "community events, and provide free internet access to the public."
+)
+
+
+collection = build_collection(document, "qa_bot_demo")
+print(f"--- Collection built: {collection.count()} chunks ---")
+
+
+question = "What was the first known library, and what did it contain?"
+answer, sources = answer_question(question, collection)
+
+
+print(f"\nQ: {question}")
+print(f"\nA: {answer}")
+print("\n--- Sources used ---")
+for i, chunk in enumerate(sources, start=1):
+    print(f"{i}. {chunk[:80]}...")
+
+
+# --- YOUR TURN: build the real interactive bot ---
+# Everything above ran ONE hardcoded question. Now build a real bot:
+#
+# 1. Write your own document (at least 6-8 sentences, something with real
+#    content you can ask multiple genuine questions about) and call
+#    build_collection() on it ONCE, before the loop starts -- just like
+#    the demo  above. Print how many chunks it made.
+#
+# 2. Write a `while True:` loop (same shape as lesson 35's chatbot):
+#      - input() a question from the user
+#      - if they type "quit", break out of the loop
+#      - otherwise, call answer_question(question, your_collection)
+#      - print the answer AND the sources it came from
+#
+# 3. Run it and ask it at least 3 different real questions about your
+#    document in one session. Paste the full conversation.
+#
+# 4. Ask it ONE question that your document genuinely does NOT answer.
+#    Does it correctly say it doesn't know, or does it make something up?
+#    This is checking the same "faithfulness" idea from lesson 44, but now
+#    you're the one testing it live instead of reading a JSON verdict.
+
+
+
+
+my_document = (
+    "Software engineering is the discipline of designing, building, and "
+    "maintaining software systems. It combines principles from computer "
+    "science, project management, and human-centered design. Modern "
+    "software teams rely on version control systems, automated testing, "
+    "continuous integration pipelines, and code reviews to ensure quality. "
+    "Agile methodologies emphasize iterative development, customer feedback, "
+    "and adaptability. Good engineers write code that is readable, modular, "
+    "and resilient to change. Collaboration, communication, and documentation "
+    "are just as important as technical skill."
+)
+
+
+my_collection = build_collection(my_document, "my_doc_collection")
+print(f"--- Collection built: {my_collection.count()} chunks ---")
+
+
+while True:
+    question = input("\nAsk a question (or type 'quit'): ").strip()
+    if question.lower() == "quit":
+        print("Exiting Q&A bot.")
+        break
+   
+    answer, sources = answer_question(question, my_collection)
+
+
+    print("\n---Answer---")
+    print(answer)
+
+
+    print("\n--- Sources used ---")
+    for i, chunk in enumerate(sources, start=1):
+        print(f"{i}. {chunk[:80]}...")
+
+
+
+
+
+LESSON 46 CAPSTONE: Personal knowledge assistant -- multiple documents,
+one search engine, real citations.
+
+
+This is the final Phase 6 capstone. Lesson 45 built a Q&A bot over ONE
+document. This one handles MANY documents at once, and adds the one piece
+that's been missing since lesson 42's metadata bonus: knowing WHICH
+document an answer actually came from. A real personal knowledge
+assistant isn't useful if it can only ever look at one file -- and it
+isn't trustworthy if it can't tell you its sources.
+
+
+The new idea is METADATA-AWARE retrieval:
+    - Every chunk, from every document, gets tagged with its source
+      document's name when it's added to the collection (lesson 42's
+      metadata bonus).
+    - When you retrieve a shortlist, you pull back the metadata ALONGSIDE
+      the text (not just the text, like lesson 42's plain retrieve()).
+    - After reranking narrows the shortlist down to the real top matches,
+      you look each surviving chunk's TEXT back up in a text->source
+      dictionary to recover which document it came from.
+    - The final answer gets built WITH citations: "[python_basics] ..." --
+      so you can always trace an answer back to its source, the same way
+      a real research assistant would.
+
+
+Pipeline, one more time, now with citations:
+    documents (dict of {source_name: text})
+        -> build_knowledge_base() [chunk + embed + tag metadata + store, ONCE]
+    question
+        -> retrieve_with_metadata() [cheap shortlist, WITH sources attached]
+        -> rerank() [sharpen the shortlist]
+        -> match reranked text back to its source
+        -> ask_claude() [generate a cited, grounded answer]
+"""
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+embed_url = "https://api.voyageai.com/v1/embeddings"
+rerank_url = "https://api.voyageai.com/v1/rerank"
+anthropic_url = "https://api.anthropic.com/v1/messages"
+
+
+voyage_headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+anthropic_headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39/40/41/42/43/44/45."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(embed_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def build_knowledge_base(documents, collection_name, chunk_size=150, overlap=30):
+    """THE NEW IDEA. documents is a dict of {source_name: text} -- MULTIPLE
+    documents, not just one. Chunks and embeds every document, tags every
+    chunk's metadata with which document it came from, and stores them ALL
+    in one shared collection."""
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+
+
+    for source_name, text in documents.items():
+        chunks = chunk_by_size(text, chunk_size=chunk_size, overlap=overlap)
+        embeddings = [get_embedding(chunk) for chunk in chunks]
+        ids = [f"{source_name}_{i}" for i in range(len(chunks))]
+        metadatas = [{"source": source_name, "chunk_index": i} for i in range(len(chunks))]
+        collection.add(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
+
+
+    return collection
+
+
+
+
+def retrieve_with_metadata(query, collection, k=6):
+    """Like lesson 42's retrieve(), but hands back each chunk's metadata
+    too -- needed so we can trace a reranked chunk back to its source."""
+    query_embedding = get_embedding(query, input_type="query")
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    return list(zip(results["documents"][0], results["metadatas"][0]))
+
+
+
+
+def rerank(query, documents, top_k=3, model="rerank-2.5-lite"):
+    """Same helper from lesson 43."""
+    body = {
+        "query": query,
+        "documents": documents,
+        "model": model,
+        "top_k": top_k,
+        "return_documents": True,
+    }
+    time.sleep(21)  # same free-tier rate limit applies to this endpoint
+    response = requests.post(rerank_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"]
+
+
+
+
+def ask_claude(user_message, system_prompt=None, max_tokens=300):
+    """Same ask() pattern from lessons 31/32/35/36/37/44/45."""
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": user_message}],
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+    response = requests.post(anthropic_url, headers=anthropic_headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+
+
+def ask_knowledge_base(question, collection, shortlist_k=6, final_k=3):
+    """The full multi-document pipeline: retrieve WITH metadata -> rerank
+    -> recover each surviving chunk's source -> generate a cited answer.
+    Returns the answer text AND a list of (source, chunk_text) citations."""
+    shortlist = retrieve_with_metadata(question, collection, k=shortlist_k)
+    shortlist_texts = [text for text, meta in shortlist]
+    text_to_source = {text: meta["source"] for text, meta in shortlist}
+
+
+    reranked = rerank(question, shortlist_texts, top_k=final_k)
+    context_chunks = [r["document"] for r in reranked]
+    citations = [(text_to_source[chunk], chunk) for chunk in context_chunks]
+
+
+    context = "\n".join(f"[{source}] {chunk}" for source, chunk in citations)
+    prompt = (
+        f"Answer the question using ONLY the context below. Each context "
+        f"line is tagged with its source in brackets -- mention which "
+        f"source(s) you used in your answer. If the context doesn't "
+        f"contain the answer, say so clearly.\n\n"
+        f"Context:\n{context}\n\nQuestion: {question}"
+    )
+    answer = ask_claude(prompt, max_tokens=250)
+    return answer, citations
+
+
+
+
+# --- Demo: THREE unrelated documents in one knowledge base ---
+documents = {
+    "python_basics": (
+        "Python is a high-level programming language known for its readable "
+        "syntax. It supports multiple paradigms including object-oriented and "
+        "functional programming, and has a huge ecosystem of libraries."
+    ),
+    "space_facts": (
+        "Jupiter is the largest planet in our solar system, more than twice "
+        "as massive as all the other planets combined. It has a Great Red "
+        "Spot, a giant storm that has raged for hundreds of years."
+    ),
+    "cooking_tips": (
+        "Searing meat at high heat before slow-cooking it locks in flavor "
+        "through the Maillard reaction. Resting meat after cooking allows "
+        "juices to redistribute instead of spilling out when you cut it."
+    ),
+}
+
+
+collection = build_knowledge_base(documents, "knowledge_base_demo")
+print(f"--- Knowledge base built: {collection.count()} chunks across {len(documents)} documents ---")
+
+
+question = "Why does searing meat before cooking matter?"
+answer, citations = ask_knowledge_base(question, collection)
+
+
+print(f"\nQ: {question}")
+print(f"\nA: {answer}")
+print("\n--- Citations ---")
+for source, chunk in citations:
+    print(f"[{source}] {chunk[:70]}...")
+
+
+# --- YOUR TURN ---
+# 1. Build your own knowledge base with build_knowledge_base() using AT
+#    LEAST 3 documents on genuinely DIFFERENT topics (like the demo's
+#    python/space/cooking split). Print how many total chunks got added.
+#
+# 2. Write an interactive while-loop bot (same shape as lesson 45), but
+#    using ask_knowledge_base() this time. Print the answer AND its
+#    citations -- which source document(s) each answer actually came from.
+#
+# 3. Ask it at least 3 questions, each one clearly about a DIFFERENT one
+#    of your documents. Confirm the citations correctly point to the right
+#    source each time -- this is proof the metadata routing is actually
+#    working, not just that retrieval found relevant text.
+#
+# 4. In your own words: what would happen to your citations if you had
+#    left out the metadata step entirely and just stored plain text like
+#    lesson 41's very first demo did? Could you still answer questions
+#    correctly? Could you still tell the user WHERE the answer came from?
+
+
+
+
+
+
+   
+my_document = {
+    "software_engineering": (
+        "Software engineering is the discipline of designing, building, and "
+        "maintaining software systems. It combines principles from computer "
+        "science, project management, and human-centered design. Modern "
+        "software teams rely on version control systems, automated testing, "
+        "continuous integration pipelines, and code reviews to ensure quality. "
+        "Agile methodologies emphasize iterative development, customer feedback, "
+        "and adaptability. Good engineers write code that is readable, modular, "
+        "and resilient to change. Collaboration, communication, and documentation "
+        "are just as important as technical skill."
+    ),
+    "ai_revolution": (
+        "Artificial intelligence is reshaping how people communicate, but the heart of the "
+        "story is still human connection. As machines learn to interpret language, emotion, "
+        "and intention, they become mirrors that reflect our patterns back to us, revealing "
+        "how deeply social we are. AI can analyze conversations, detect subtle shifts in tone, "
+        "and respond in ways that feel natural, yet its value comes from how it amplifies "
+        "human relationships rather than replacing them. People use AI to practice difficult "
+        "conversations, explore ideas they're afraid to voice aloud, or organize thoughts they "
+        "struggle to express. In those moments, the technology becomes a bridge, not a barrier. "
+        "At the same time, AI forces us to confront what connection truly means. A machine "
+        "can simulate empathy, but it cannot experience it. It can generate comfort, but it "
+        "cannot feel the warmth it offers. This contrast pushes humans to define the qualities "
+        "that make our interactions meaningful: vulnerability, shared experience, and the "
+        "unpredictable spark of genuine understanding. As AI grows more capable, the "
+        "responsibility shifts to us to use it intentionally—supporting communication, "
+        "expanding access to knowledge, and strengthening bonds rather than weakening "
+        "them. In the end, AI's greatest contribution may be reminding us how much we need "
+        "each other."
+    ),
+    "pop_py": (
+        "Python is a popular programming language known for its readability. "
+        "It is widely used in web development, data science, and automation. "
+        "Flask is a lightweight web framework for Python that makes it easy "        "to build APIs and web apps. "
+        "Embeddings are numeric representations of text that capture meaning, "
+        "and they are used in semantic search and recommendation systems. "
+    )
+}
+
+
+my_collection = build_knowledge_base(my_document, "my_doc_collection")
+print(f" --- Knowledge base built: {my_collection.count()} chunks across {len(my_document)} documents ---")
+
+
+while True:
+    question = input("\nAsk a question (or type 'quit'): ").strip()
+    if question.lower() == "quit":
+        print("Exiting Q&A bot.")
+        break
+   
+    answer, citations = ask_knowledge_base(question, my_collection)
+
+
+    print("\n--- Answer ---")
+    print(answer)
+    print("\n--- Citations ---")
+    for source, chunk in citations:
+        print(f"[{source}] {chunk[:80]}...")
+
+
+
+
+# 4 assignment. without citations there are "no facts" per se.
+#without reference points, nothing can be checked and proven ultimately leaving
+#no facts. leaving the bot exposed to potential hallucinations.
+ 
+
+47
+
+"""
+LESSON 47: MCP concepts -- servers, tools, and schemas
+
+
+Welcome to Phase 7. MCP (Model Context Protocol) is an open standard,
+built by Anthropic, for how an LLM-powered application discovers and
+calls TOOLS -- capabilities that live OUTSIDE the model itself (reading a
+file, hitting an API, querying a database, running code).
+
+
+You've actually been WATCHING MCP in action this entire conversation,
+without the name for it: every time I read a file, ran a Python script in
+a sandbox, or searched the web to answer one of your questions, that was
+me (the model) being handed a list of available TOOLS, deciding one was
+needed, and the surrounding application EXECUTING that tool and handing
+the result back to me. MCP is just the standardized wire format for that
+exact handoff, so any MCP-compatible tool SERVER can plug into any
+MCP-compatible HOST application, instead of every company inventing its
+own bespoke glue code.
+
+
+--- The core pieces ---
+    TOOL     -- one capability, described by a NAME, a DESCRIPTION (so the
+                model knows when to reach for it), and an INPUT SCHEMA
+                (so the model knows exactly what arguments to provide --
+                same JSON-schema idea as lesson 32's structured outputs).
+    SERVER   -- a process that HOSTS one or more tools and knows how to
+                actually execute them.
+    HOST     -- the application (like this very conversation) that gets
+                the tool list, sends it to the model alongside your
+                question, and relays tool calls back and forth.
+
+
+--- Before you build a real MCP server (lesson 48), see the MECHANICS ---
+This lesson uses Anthropic's real "tool use" feature in the Messages API
+-- the exact same tools-list + tool_use/tool_result round trip that MCP
+standardizes, just with your tool functions living in THIS file instead
+of a separate server process. The flow:
+
+
+    1. You describe your tools (name, description, input_schema) and send
+       them alongside a question.
+    2. If the model decides a tool is needed, it doesn't answer directly --
+       it replies with stop_reason "tool_use" and a block naming WHICH
+       tool and WHAT arguments to call it with.
+    3. YOUR code (the "host") actually runs that Python function.
+    4. You send the result BACK to the model as a new message (same
+       growing-conversation-history idea as lesson 35's chatbot), and
+       the model uses it to give you a real final answer.
+
+
+Lesson 48 will take these same tools and put them behind a REAL, separate
+MCP server process -- but the underlying idea is exactly what you're about
+to see run in this one file.
+"""
+
+
+import os
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+anthropic_url = "https://api.anthropic.com/v1/messages"
+
+
+headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+
+
+# --- Your actual tool functions -- plain Python, nothing special ---
+def get_weather(city):
+    """Mock weather lookup (no real API call -- this lesson is about the
+    MECHANICS of tool use, not building a real weather client)."""
+    fake_data = {
+        "chicago": "58F, windy",
+        "miami": "84F, sunny",
+        "seattle": "52F, light rain",
+    }
+    return fake_data.get(city.lower(), f"No data for {city}, assume 70F and clear.")
+
+
+
+
+def calculate(a, b, operation):
+    """A tiny calculator tool -- real arithmetic, no eval() involved."""
+    if operation == "add":
+        return str(a + b)
+    elif operation == "subtract":
+        return str(a - b)
+    elif operation == "multiply":
+        return str(a * b)
+    elif operation == "divide":
+        return str(a / b)
+    return f"Unknown operation: {operation}"
+
+
+
+
+# --- The registry: maps a tool NAME to the Python function that runs it ---
+TOOL_FUNCTIONS = {
+    "get_weather": get_weather,
+    "calculate": calculate,
+}
+
+
+# --- The schemas: what the MODEL sees, so it knows each tool exists and
+# exactly what arguments it needs (same JSON-schema idea as lesson 32) ---
+TOOLS = [
+    {
+        "name": "get_weather",
+        "description": "Get the current weather for a given city.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "description": "The city name."}
+            },
+            "required": ["city"],
+        },
+    },
+    {
+        "name": "calculate",
+        "description": "Perform a basic arithmetic calculation on two numbers.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "number"},
+                "b": {"type": "number"},
+                "operation": {
+                    "type": "string",
+                    "enum": ["add", "subtract", "multiply", "divide"],
+                },
+            },
+            "required": ["a", "b", "operation"],
+        },
+    },
+]
+
+
+
+
+def ask_with_tools(question, tools, tool_functions, max_tokens=300):
+    """Sends a question WITH a list of available tools. If the model wants
+    to call one, executes it locally and sends the result back so the
+    model can give a real final answer. Returns (final_answer, tool_used)."""
+    messages = [{"role": "user", "content": question}]
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "tools": tools,
+        "messages": messages,
+    }
+    response = requests.post(anthropic_url, headers=headers, json=body)
+    data = response.json()
+
+
+    if data.get("stop_reason") != "tool_use":
+        # The model answered directly -- no tool was needed at all.
+        final_text = data["content"][0]["text"]
+        return final_text, None
+
+
+    # Find the tool_use block among the response's content blocks.
+    tool_use_block = next(b for b in data["content"] if b["type"] == "tool_use")
+    tool_name = tool_use_block["name"]
+    tool_input = tool_use_block["input"]
+
+
+    # THE HOST executes the tool -- the model never runs Python itself.
+    tool_function = tool_functions[tool_name]
+    tool_result = tool_function(**tool_input)
+
+
+    # Send the result back, same growing-history idea as lesson 35.
+    messages.append({"role": "assistant", "content": data["content"]})
+    messages.append({
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": tool_use_block["id"],
+                "content": tool_result,
+            }
+        ],
+    })
+
+
+    body["messages"] = messages
+    followup = requests.post(anthropic_url, headers=headers, json=body)
+    followup_data = followup.json()
+    final_text = next(b["text"] for b in followup_data["content"] if b["type"] == "text")
+
+
+    return final_text, {"tool": tool_name, "input": tool_input, "result": tool_result}
+
+
+
+
+# --- Demo: one question that needs a tool, one that doesn't ---
+question1 = "What's the weather like in Chicago right now?"
+answer1, tool_used1 = ask_with_tools(question1, TOOLS, TOOL_FUNCTIONS)
+print(f"Q: {question1}")
+print(f"Tool called: {tool_used1}")
+print(f"A: {answer1}\n")
+
+
+question2 = "What is 47 times 6?"
+answer2, tool_used2 = ask_with_tools(question2, TOOLS, TOOL_FUNCTIONS)
+print(f"Q: {question2}")
+print(f"Tool called: {tool_used2}")
+print(f"A: {answer2}\n")
+
+
+# --- YOUR TURN ---
+# 1. Add a THIRD tool of your own choosing. Write the plain Python function,
+#    add it to TOOL_FUNCTIONS, and write its schema and add it to TOOLS
+#    (give it a clear name, description, and input_schema like the two
+#    demo tools above).
+#
+# 2. Ask a question specifically designed to trigger YOUR new tool. Print
+#    which tool got called, what arguments the model chose to pass it, and
+#    the final answer.
+#
+# 3. Ask a question that needs NO tool at all (e.g. "What's the capital of
+#    France?"). Print the result and confirm tool_used comes back as None
+#    -- the model answered directly instead of reaching for a tool.
+#
+# 4. In your own words: how does this relate to MCP? Specifically -- right
+#    now, TOOL_FUNCTIONS lives in the SAME file as the code that calls the
+#    model. What would have to change for these same tools to instead live
+#    on a separate SERVER that this file talks to over a standard
+#    protocol, instead of calling the Python functions directly?
+
+
+
+
+def read_file(path):
+    try:
+        with open(path, "r") as f:
+            return f.read()
+    except Exception as e:
+        return f"Error: {e}"
+
+
+TOOL_FUNCTIONS = {
+    "get_weather": get_weather,
+    "calculate": calculate,
+    "read_file": read_file,
+}
+
+
+TOOLS = [
+    {
+        "name": "get_weather",
+        "description": "Get the current weather for a given city.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "description": "The city name."}
+            },
+            "required": ["city"],
+        },
+    },
+    {
+        "name": "calculate",
+        "description": "Perform a basic arithmetic calculation on two numbers.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "number"},
+                "b": {"type": "number"},
+                "operation": {
+                    "type": "string",
+                    "enum": ["add", "subtract", "multiply", "divide"],
+                },
+            },
+            "required": ["a", "b", "operation"],
+        },
+    },
+    {
+    "name": "read_file",
+    "description": "Read the contents of a file from disk.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The file path to read."
+            }
+        },
+        "required": ["path"]
+    }
+}
+]
+
+
+question3 = "Read the file at ./notes.txt."
+answer3, tool_used3 = ask_with_tools(question3, TOOLS, TOOL_FUNCTIONS)
+print(f"Q: {question3}")
+print(f"Tool called: {tool_used3}")
+print(f"A: {answer3}\n")
+
+
+question4 = "What's the capital of France?"
+answer4, tool_used4 = ask_with_tools(question4, TOOLS, TOOL_FUNCTIONS)
+print(f"Q: {question4}")
+print(f"Tool called: {tool_used4}")
+print(f"A: {answer4}\n")
+
+
+# To move your tools to a separate MCP server, you must:
+
+
+# Replace direct Python function calls with protocol messages sent to a remote server that exposes those tools.
+# The host stops executing abilities locally and instead sends tool-call requests over MCP to a tool server, then waits for the server’s response.
+
+
+
+
+48"""
+LESSON 48: Your first real MCP server
+
+
+Lesson 47 simulated the tool-use MECHANICS by hand: a plain Python dict
+(TOOL_FUNCTIONS) mapping names to functions, and a hand-written schema
+dict for each tool. That worked, but YOU had to write the schema
+yourself, and the "server" was really just a dictionary living in the
+same file as everything else.
+
+
+This lesson builds an ACTUAL MCP server using Anthropic's real `mcp`
+Python package. Two big upgrades over lesson 47:
+
+
+    1. NO MORE HAND-WRITTEN SCHEMAS. The @mcp.tool() decorator reads your
+       function's type hints and docstring and generates the JSON schema
+       automatically. `def add(a: int, b: int) -> int` IS the schema --
+       nothing to write by hand like lesson 47's input_schema dicts.
+
+
+    2. A REAL SERVER OBJECT. `mcp = MCPServer("...")` is an actual server
+       that speaks the MCP protocol -- the same kind of thing a real MCP
+       host (like Claude Desktop, or the app you're talking to me through
+       right now) would connect to over a standard transport (stdio, or
+       HTTP). For THIS lesson, we connect to it the simplest possible
+       way -- an in-process Client, in the same file -- just to prove the
+       server and its tools actually work. Lesson 49 wires a real LLM up
+       to call these tools for real.
+
+
+--- One new concept you'll need: async/await ---
+MCP's Client is asynchronous -- it can pause and resume while waiting on
+I/O instead of blocking everything else. You don't need to master this
+to finish this lesson: just know that `async def main():` marks a
+function that can `await` other async operations inside it, and
+`asyncio.run(main())` is how you actually kick that function off from a
+normal script. Treat `await` as "pause here until this finishes."
+
+
+--- One-time setup ---
+pip install "mcp[cli]"
+"""
+
+
+import asyncio
+from mcp.server import MCPServer
+from mcp import Client
+
+
+mcp = MCPServer("py-master-demo")
+
+
+
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two numbers together."""
+    return a + b
+
+
+
+
+@mcp.tool()
+def calculate(a: float, b: float, operation: str) -> str:
+    """Perform a basic arithmetic calculation.
+
+
+    Args:
+        a: The first number.
+        b: The second number.
+        operation: One of "add", "subtract", "multiply", "divide".
+    """
+    if operation == "add":
+        return str(a + b)
+    elif operation == "subtract":
+        return str(a - b)
+    elif operation == "multiply":
+        return str(a * b)
+    elif operation == "divide":
+        return str(a / b)
+    return f"Unknown operation: {operation}"
+
+
+
+
+@mcp.tool()
+def word_count(text: str) -> int:
+    """Count the number of words in a piece of text."""
+    return len(text.split())
+
+
+@mcp.tool()
+def translate_greeting(language: str) -> str:
+    """Translate a simple greeting into the given language."""
+    translations = {"spanish": "Hola", "chinese": "Nǐ hǎo"}
+    return translations.get(language.lower(), f"No translation for {language}")
+
+
+
+
+# To run this as a REAL standalone server that a separate host (like
+# Claude Desktop) connects to over stdio, you'd do this instead of the
+# demo below:
+#     if __name__ == "__main__":
+#         mcp.run(transport="stdio")
+# That blocks forever, waiting for a host to connect -- not useful for
+# THIS lesson's goal of proving your tools work, so we use an in-process
+# Client instead, same file, same run.
+
+
+
+
+async def main():
+    async with Client(mcp) as client:
+        result1 = await client.call_tool("add", {"a": 5, "b": 7})
+        print(f"add(5, 7) -> {result1.structured_content}")
+ 
+        result2 = await client.call_tool(
+            "calculate", {"a": 20, "b": 4, "operation": "divide"}
+        )
+        print(f"calculate(20, 4, divide) -> {result2.structured_content}")
+
+
+        result3 = await client.call_tool(
+            "word_count", {"text": "the quick brown fox jumps over the lazy dog"}
+        )
+        print(f"word_count(...) -> {result3.structured_content}")
+
+
+        result4 = await client.call_tool("translate_greeting", {"language": "spanish"})
+        print(f"translate_greeting(spanish) -> {result4.structured_content}")
+
+
+
+
+asyncio.run(main())
+
+
+# --- YOUR TURN ---
+# 1. Add a FOURTH tool of your own choosing, decorated with @mcp.tool(),
+#    with type hints and a docstring (no manual schema needed -- that's
+#    the whole point of this lesson). Keep it a plain synchronous function
+#    like the three above.
+#
+# 2. Inside main() (or a second async function you call the same way),
+#    use the Client to call your new tool with real arguments. Print
+#    result.structured_content.
+#
+# 3. Try running `mcp dev lesson_48_first_mcp_server.py` from your
+#    terminal (you may need `python -m mcp dev ...` if `mcp` isn't
+#    recognized directly). This opens the MCP Inspector in your browser --
+#    a real tool for poking at MCP servers by hand. Try calling one of
+#    your tools from the Inspector UI. This part doesn't need to be
+#    pasted back here, just take a look -- it's the same kind of tool a
+#    real MCP developer uses daily.
+#
+# 4. In your own words: what's different about HOW the schema got created
+#    this time compared to lesson 47? In lesson 47, who wrote the
+#    input_schema dict? In this lesson, who (or what) generated it?
+
+
+
+
+
+49
+
+
+"""
+LESSON 49: Wiring a real LLM up to a real MCP server
+
+
+This is the payoff of Phase 7 so far. Lesson 47 showed you the tool-use
+MECHANICS with a fake local dict (TOOL_FUNCTIONS) standing in for a real
+server. Lesson 48 built an ACTUAL MCP server. This lesson deletes that
+fake dict entirely and wires Claude up to the REAL server instead. This
+is exactly what a real MCP host application (like the one you're talking
+to me through right now) does under the hood.
+
+
+Two things change from lesson 47's ask_with_tools():
+
+
+    1. WHERE THE SCHEMA COMES FROM. Lesson 47: you hand-wrote a TOOLS list
+       of schema dicts yourself. This lesson: you ASK THE SERVER what
+       tools it has (`client.list_tools()`), and build Claude's tools
+       list FROM that real answer. If the server adds a new tool
+       tomorrow, your code picks it up automatically -- you never touch
+       the schema by hand again.
+
+
+    2. WHERE THE EXECUTION HAPPENS. Lesson 47: `tool_functions[name](**input)`
+       called a plain Python function living in the same file. This
+       lesson: `await client.call_tool(name, input)` sends the call
+       ACROSS the MCP protocol to the real server, which runs the
+       function on ITS side and sends the result back. Your code never
+       touches the tool's actual implementation at all anymore.
+
+
+Same round trip as lesson 47 otherwise: ask Claude with tools attached,
+check for a tool_use block, run it (now via MCP), send the result back,
+get the final answer.
+"""
+
+
+import os
+import asyncio
+import requests
+from dotenv import load_dotenv
+from mcp.server import MCPServer
+from mcp import Client
+
+
+load_dotenv(override=True)
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+anthropic_url = "https://api.anthropic.com/v1/messages"
+headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+# --- The real MCP server from lesson 48, tools and all ---
+mcp = MCPServer("py-master-demo")
+
+
+
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two numbers together."""
+    return a + b
+
+
+
+
+@mcp.tool()
+def calculate(a: float, b: float, operation: str) -> str:
+    """Perform a basic arithmetic calculation.
+
+
+    Args:
+        a: The first number.
+        b: The second number.
+        operation: One of "add", "subtract", "multiply", "divide".
+    """
+    if operation == "add":
+        return str(a + b)
+    elif operation == "subtract":
+        return str(a - b)
+    elif operation == "multiply":
+        return str(a * b)
+    elif operation == "divide":
+        return str(a / b)
+    return f"Unknown operation: {operation}"
+
+
+
+
+@mcp.tool()
+def word_count(text: str) -> int:
+    """Count the number of words in a piece of text."""
+    return len(text.split())
+
+
+
+
+
+
+@mcp.tool()
+def translate_greeting(language: str) -> str:
+    """Translate a simple greeting into the given language."""
+    translations = {"spanish": "Hola", "chinese": "Nǐ hǎo"}
+    return translations.get(language.lower(), f"No translation for {language}")
+
+
+
+
+
+
+
+
+
+
+def mcp_tools_to_anthropic_format(tools_result):
+    """THE FIRST NEW IDEA. Converts what the MCP server told us about its
+    own tools into the exact shape Claude's API expects. MCP's Tool
+    objects already use the same field names (name, description,
+    input_schema) -- we're just repackaging them into plain dicts."""
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+        for tool in tools_result.tools
+    ]
+
+
+
+
+async def ask_with_mcp_tools(question, client, anthropic_tools, max_tokens=300):
+    """Same round trip as lesson 47's ask_with_tools(), except the tool
+    actually gets executed by calling THROUGH the MCP client instead of a
+    local dict lookup."""
+    messages = [{"role": "user", "content": question}]
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "tools": anthropic_tools,
+        "messages": messages,
+    }
+    response = requests.post(anthropic_url, headers=headers, json=body)
+    data = response.json()
+
+
+    if data.get("stop_reason") != "tool_use":
+        return data["content"][0]["text"], None
+
+
+    tool_use_block = next(b for b in data["content"] if b["type"] == "tool_use")
+    tool_name = tool_use_block["name"]
+    tool_input = tool_use_block["input"]
+
+
+    # THE SECOND NEW IDEA -- call it through the real MCP server, not a
+    # local Python function.
+    mcp_result = await client.call_tool(tool_name, tool_input)
+    tool_result_text = mcp_result.content[0].text
+
+
+    messages.append({"role": "assistant", "content": data["content"]})
+    messages.append({
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": tool_use_block["id"],
+                "content": tool_result_text,
+            }
+        ],
+    })
+
+
+    body["messages"] = messages
+    followup = requests.post(anthropic_url, headers=headers, json=body)
+    followup_data = followup.json()
+    final_text = next(b["text"] for b in followup_data["content"] if b["type"] == "text")
+
+
+    return final_text, {"tool": tool_name, "input": tool_input, "result": tool_result_text}
+
+
+
+
+async def main():
+    async with Client(mcp) as client:
+        # Ask the SERVER what it can do -- no hand-written schema list.
+        tools_result = await client.list_tools()
+        anthropic_tools = mcp_tools_to_anthropic_format(tools_result)
+        print(f"--- Discovered {len(anthropic_tools)} tools from the MCP server ---")
+        for t in anthropic_tools:
+            print(f"  - {t['name']}: {t['description']}")
+
+
+        question1 = "What is 15 plus 27?"
+        answer1, tool_used1 = await ask_with_mcp_tools(question1, client, anthropic_tools)
+        print(f"\nQ: {question1}")
+        print(f"Tool called: {tool_used1}")
+        print(f"A: {answer1}")
+
+
+        question2 = "What's the tallest mountain in the world?"
+        answer2, tool_used2 = await ask_with_mcp_tools(question2, client, anthropic_tools)
+        print(f"\nQ: {question2}")
+        print(f"Tool called: {tool_used2}")
+        print(f"A: {answer2}")
+
+
+       
+        question3 = "Say hello in spanish?"
+        answer3, tool_used3 = await ask_with_mcp_tools(question3, client, anthropic_tools)
+        print(f"\nQ: {question3}")
+        print(f"Tool called: {tool_used3}")
+        print(f"A: {answer3}")
+        print(tools_result.tools)
+
+
+
+
+asyncio.run(main())
+
+
+# --- YOUR TURN ---
+# 1. Add a fourth @mcp.tool() to the server above (same as lesson 48 --
+#    type hints + docstring, no manual schema).
+#
+# 2. Ask a question in main() designed to trigger it, using
+#    ask_with_mcp_tools() like the two demo questions above. Print which
+#    tool was called and the final answer. You should NOT need to touch
+#    mcp_tools_to_anthropic_format() or ask_with_mcp_tools() at all --
+#    that's the whole point of discovering tools dynamically.
+#
+# 3. Print the FULL discovered tools list (from tools_result.tools) after
+#    adding your new tool. Confirm your new tool shows up automatically,
+#    with a real input_schema, without you ever writing that schema by
+#    hand.
+#
+# 4. In your own words: compare this file to lesson 47's. What would you
+#    have had to do in lesson 47's version if you wanted to add a new
+#    tool? What do you actually have to do here? Which one would scale
+#    better to a server with 50 tools instead of 3?
+#Lesson 47: you manually told Claude what tools exist.
+#Lesson 49: Claude asks the server directly, and the server tells him
+
+
+
+
+
+50
+"""
+LESSON 50: An MCP tool that reads and writes real files
+
+
+Every tool so far (lessons 47-49) has been pure computation -- add two
+numbers, count words, look up a fake weather value. This lesson gives an
+MCP tool a REAL side effect: touching the filesystem. This is the same
+category of thing my own Read/Write tools do in this very conversation.
+
+
+--- The new, important idea: SANDBOXING ---
+A tool that can read or write ANY path on your computer is dangerous --
+one wrong argument (or one confused LLM) could overwrite something
+important. Real MCP file tools almost always restrict themselves to one
+safe directory, and refuse anything that tries to escape it. This lesson
+builds that restriction in from the start:
+
+
+    1. Every read/write is confined to a single FILES_DIR folder that
+       lives right next to this script.
+    2. Filenames containing ".." (an attempt to climb OUT of that folder,
+       e.g. "../../important_file.txt") are rejected before anything
+       touches disk.
+
+
+This is the same spirit as the standing project rule you already know
+about -- never let a tool touch something it shouldn't be able to reach.
+
+
+--- One more real thing you'll see below: how MCP reports errors ---
+When a tool raises a Python exception internally, the MCP client does
+NOT re-raise that exception to your calling code. Instead, you get back
+a normal result object with `is_error=True` and a generic error message
+in `.content`. This means you check `result.is_error` after every call
+instead of wrapping everything in try/except -- more like checking an
+HTTP status code than catching a crash.
+"""
+
+
+import os
+import asyncio
+from mcp.server import MCPServer
+from mcp import Client
+
+
+mcp = MCPServer("file-tools-demo")
+
+
+FILES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_files")
+os.makedirs(FILES_DIR, exist_ok=True)
+
+
+
+
+def safe_path(filename: str) -> str:
+    """Builds a path INSIDE FILES_DIR, and refuses anything that tries to
+    escape it via '..' or an absolute path."""
+    if ".." in filename or os.path.isabs(filename):
+        raise ValueError(f"Unsafe filename rejected: {filename}")
+    return os.path.join(FILES_DIR, filename)
+
+
+
+
+@mcp.tool()
+def write_file(filename: str, content: str) -> str:
+    """Write text content to a file inside the sandboxed files directory.
+
+
+    Args:
+        filename: Name of the file to write (no folders, no "..").
+        content: The text content to write into the file.
+    """
+    path = safe_path(filename)
+    with open(path, "w") as f:
+        f.write(content)
+    return f"Wrote {len(content)} characters to {filename}"
+
+
+
+
+@mcp.tool()
+def read_file(filename: str) -> str:
+    """Read the text content of a file inside the sandboxed files directory.
+
+
+    Args:
+        filename: Name of the file to read (no folders, no "..").
+    """
+    path = safe_path(filename)
+    if not os.path.exists(path):
+        return f"No such file: {filename}"
+    with open(path, "r") as f:
+        return f.read()
+
+
+
+
+@mcp.tool()
+def list_files() -> str:
+    """List every file currently in the sandboxed files directory."""
+    names = os.listdir(FILES_DIR)
+    if not names:
+        return "No files yet."
+    return ", ".join(names)
+
+
+@mcp.tool()
+def delete_file(filename: str) -> str:
+    """Delete a file inside the sandboxed files directory.
+
+
+    Args:
+        filename: Name of the file to delete (no folders, no "..").
+    """
+    path = safe_path(filename)
+    if not os.path.exists(path):
+        return f"No such file to delete: {filename}"
+    os.remove(path)
+    return f"Deleted file: {filename}"
+
+
+
+
+async def main():
+    async with Client(mcp) as client:
+        result1 = await client.call_tool(
+            "write_file",
+            {"filename": "hello.txt", "content": "Hello from Roy's MCP server!"},
+        )
+        print(f"write_file -> {result1.structured_content}")
+
+
+        result2 = await client.call_tool("read_file", {"filename": "hello.txt"})
+        print(f"read_file -> {result2.structured_content}")
+
+
+        result3 = await client.call_tool("list_files", {})
+        print(f"list_files -> {result3.structured_content}")
+
+
+       
+        # --- NEW: write your own file, read it, list, delete, list again ---
+        my_filename = "my_note.txt"
+        my_content = "This is my custom MCP file for lesson 50."
+
+
+        my_write = await client.call_tool("write_file", {"filename": my_filename, "content": my_content})
+        print(f"write_file (my_note) -> {my_write.structured_content}")
+
+
+        my_read = await client.call_tool("read_file", {"filename": my_filename})
+        print(f"read_file (my_note) -> {my_read.structured_content}")
+
+
+        my_list_before = await client.call_tool("list_files", {})
+        print(f"list_files (before delete) -> {my_list_before.structured_content}")
+
+
+        my_delete = await client.call_tool("delete_file", {"filename": my_filename})
+        print(f"delete_file (my_note) -> {my_delete.structured_content}")
+
+
+        my_list_after = await client.call_tool("list_files", {})
+        print(f"list_files (after delete) -> {my_list_after.structured_content}")
+
+
+        # Prove the sandboxing actually works -- this SHOULD fail.
+        # Note: when a tool raises an exception internally, the MCP client
+        # does NOT raise a Python exception back to you -- it returns a
+        # normal result with is_error=True instead. Always check
+        # result.is_error rather than wrapping calls in try/except.
+        escape_result = await client.call_tool(
+            "write_file",
+            {"filename": "../escape_attempt.txt", "content": "sneaky"},
+        )
+        if escape_result.is_error:
+            print(f"Escape attempt correctly blocked (is_error=True): "
+                  f"{escape_result.content[0].text}")
+        else:
+            print(f"WARNING: escape attempt was NOT blocked! {escape_result.structured_content}")
+
+
+
+
+asyncio.run(main())
+
+
+# --- YOUR TURN ---
+# 1. Add a fourth tool, delete_file(filename: str) -> str, that removes a
+#    file from FILES_DIR (use safe_path() the same way the other three
+#    do -- don't skip the safety check). Return a message confirming what
+#    was deleted, or that the file didn't exist.
+#
+# 2. In main(), write a NEW file of your own with real content, read it
+#    back to confirm it matches, then call list_files() and confirm your
+#    file shows up. Print all three results.
+#
+# 3. Call your new delete_file() tool on that same file, then call
+#    list_files() again and confirm it's gone.
+#
+# 4. In your own words: why does safe_path() check for ".." specifically?
+#    What could go wrong if write_file() or read_file() just used
+#    whatever filename string the model handed it, with no checking at
+#    all? Think about what a confused (or malicious) LLM could type as a
+#    "filename."

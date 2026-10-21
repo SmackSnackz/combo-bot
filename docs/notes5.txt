@@ -1,0 +1,1103 @@
+"""
+LESSON 36 (CAPSTONE): Text summarizer
+
+Another combination lesson, not a new concept -- this is lesson 31's
+output-format constraints (be specific about the shape you want) applied
+to a genuinely useful real task: compressing a long piece of text down to
+a short one.
+
+The core trick is the SYSTEM PROMPT. "Summarize this" alone gets
+inconsistent, unpredictable-length results. "Summarize this in AT MOST 3
+sentences, respond with ONLY the summary, no preamble" gets something you
+can actually rely on in real code -- same idea as lesson 31's "Rating:
+X/10" exercise, just applied to something with real utility.
+
+We'll also look at data["usage"] again (lesson 30) -- comparing
+input_tokens (the original long text) against output_tokens (the short
+summary) is a direct, numeric measure of how much you actually compressed
+the text.
+"""
+
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+url = "https://api.anthropic.com/v1/messages"
+
+headers = {
+    "x-api-key": api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+def summarize(text, max_sentences=3, max_tokens=200):
+    """Summarizes text down to AT MOST max_sentences sentences.
+    Returns (summary_text, usage_dict)."""
+    system_prompt = (
+        f"Summarize the following text in AT MOST {max_sentences} sentences. "
+        "Respond with ONLY the summary -- no preamble, no 'Here is a summary:'."
+    )
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": text}],
+    }
+
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    summary = data["content"][0]["text"]
+    usage = data["usage"]
+    return summary, usage
+
+
+# --- Demo: compress a real paragraph down to 2 sentences ---
+original_text = (
+    "Coffee's journey from a wild plant to the world's second most-traded "
+    "commodity started in Ethiopia, where legend says a goat herder named "
+    "Kaldi noticed his goats became unusually energetic after eating "
+    "berries from a certain tree. Word of the stimulating berries spread "
+    "to nearby monasteries, then across the Red Sea into Yemen, where "
+    "farmers began cultivating the plant deliberately sometime in the "
+    "15th century. From Yemen, coffee spread through the Middle East, "
+    "reaching Istanbul, then Venice, then the rest of Europe by the "
+    "1600s, sparking the creation of coffeehouses that became hubs for "
+    "political discussion, business deals, and early journalism. European "
+    "colonial powers later planted coffee across South America, "
+    "Southeast Asia, and Africa, turning it into a global crop. Today, "
+    "over 2 billion cups are consumed worldwide every single day."
+)
+
+summary, usage = summarize(original_text, max_sentences=2)
+
+print("--- Original text ---")
+print(original_text)
+print(f"\nOriginal word count: {len(original_text.split())}")
+
+print("\n--- Summary (max 2 sentences) ---")
+print(summary)
+
+print(f"\n--- Token usage ---")
+print(f"Input tokens (original text): {usage['input_tokens']}")
+print(f"Output tokens (summary): {usage['output_tokens']}")
+print(f"Compression: {usage['input_tokens']} tokens -> {usage['output_tokens']} tokens")
+
+# --- YOUR TURN ---
+# 1. Pick your own text -- at least 100 words, any topic you want. Call
+#    summarize() on it with max_sentences=1 (as strict as possible).
+#    Print the original word count, the summary, and the input/output
+#    token usage, same as the demo above.
+#
+# 2. Call summarize() on that SAME text again, but this time with
+#    max_sentences=5 (much looser). Compare the two summaries side by
+#    side -- how much more detail does the 5-sentence version keep versus
+#    the 1-sentence version?
+#
+# 3. Build a batch summarizer: put 3 different paragraphs of your own
+#    (different topics) into a list, loop over them calling summarize()
+#    on each with max_sentences=2, and print every summary. Same
+#    "process a pile of unstructured text automatically" pattern as
+#    lesson 32's product reviews.
+#
+# 4. In your own words: why does specifying "AT MOST 3 sentences" in the
+#    system prompt matter, instead of just saying "summarize this" with
+#    no constraint at all? Think back to lesson 31 -- what happens to
+#    reliability when instructions are vague versus specific?
+# 
+#  
+
+ #---Second demo for summarization---
+
+second_text = (
+  "Artificial intelligence has rapidly shifted from a niche research field into a "
+  "mainstream technology shaping nearly every industry. Companies now rely on mainsteam"
+  "technology shaping nearly every industry. Companies now rely om machine-learning" 
+  "systems to autpomate decisions, analyze massive datasets, and personalize customer " 
+  "experiences at scale. While the benefits are enormous, the rise of AI also brings challenges,"
+  "including bias, transperancy concerns, and theneed for new regulations. Developers"
+  "must balance innovation with responsibility, ensuring sysytems behave ethically" 
+  "and predictably. as AI continue evolving, society faces the task of intergrating these tools" 
+  "in a way that enhance human capabilty rather than replace it entirely."
+)
+
+summary1, usage1 = summarize(second_text, max_sentences=1)
+summary5, usage5 = summarize(second_text, max_sentences=5)
+
+
+print("---Second_text---")
+print(second_text)
+print(f"\nSecond word count: {len(second_text.split())}")
+
+
+print(f"\n---1 sentence summary ---")
+print(summary1)
+print(f"Input tokens: {usage1['input_tokens']}")
+print(f"Output tokens: {usage1['output_tokens']}")
+
+
+print(f"\n---5 sentence summary ---")
+print(summary5)
+print(f"Input tokens: {usage5['input_tokens']}")
+print(f"Output tokens: {usage5['output_tokens']}")
+
+# --- Batch summarize: 3 different paragraphs, each summarized to 2 sentences ---
+
+batch_texts = [
+    (
+        "Space agencies worldwide are shifting focus from traditional government-led "
+        "missions to public-private partnerships. Companies like SpaceX and blue Origin "
+        "have accelarted launch schedules, reduced cost, and introduced reusable rockets "
+        "technology. This shift has opened the door to commercial satelite deployment, "
+        "space tourism, and future lunar infrastructure. As collaboration grows, nations "
+        "must establish new policies to manage orbital traffic, resource rights, and "
+        "long-term sustainability."
+    ),
+    (
+        "Modern nutrition science increasingly emphasizes whole food, gut health, and "
+        "personalized dietary approaches. Researchers have discovered that microbiome "
+        "diversity strongly influences digestion, immunity, and even mood regulation. "
+        "As a result, diets rich in fiber, fermented foods, and minimally processed "
+        "ingredients are gaining popularity. Personalized nutrition plans, often guided "
+        "by genetic test or microbiome analysis, aim to optimize health outcomes for "
+        "individuals rather than relying on one-size-fits-all guidelines. "
+    ),
+   (
+        "Renewable energy adoption has accelerated as solar and wind technologies become "
+        "cheaper and more efficient. Govnerment are offering incentives for clean energy "
+        "projects, while corporations commit to sustainability targets. Despite progress, "
+        "challenges remain in energy storage, grid modernization, and balancing intermittent "
+        "power sources. Continued innovation in batteries and smart-grid systems will " 
+        "determine how quickly renewables can replace fossil fuels on a global scale. "
+   )
+]
+
+print("\n--- Batch Summarize (max 2 sentences each) ---")
+
+for i, paragraph in enumerate(batch_texts, start=1):
+    summary, usage = summarize(paragraph, max_sentences=2)
+    print(f"\n--- Paragraph {i} Summary ---")
+    print(summary)
+    print(f"Input tokens: {usage['input_tokens']}")
+    print(f"Output tokens: {usage['output_tokens']}")
+
+    #assignment 4: models can sometimes go off of the rails sometimes, if they are not kept in a tight frame. if the rpmpt or questons are framed good.
+
+
+"""
+LESSON 37 (CAPSTONE): Text classifier / sentiment analyzer
+
+Final Phase 5 capstone. Combines lesson 32's structured JSON output with a
+real classification task: reading a piece of text and assigning it a
+clean, structured LABEL your code can actually branch on (if/elif on a
+label), instead of a sentence of prose you'd have to re-read every time.
+
+Same three techniques from lesson 32, applied to a new job:
+    1. Describe the exact categories and JSON shape you want
+    2. Strip markdown fences before parsing
+    3. try/except around json.loads() so a bad reply never crashes you
+"""
+
+import os
+import json
+import requests
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+url = "https://api.anthropic.com/v1/messages"
+
+headers = {
+    "x-api-key": api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+def ask(user_message, system_prompt=None, messages_history=None, max_tokens=300):
+    """Same helper from lessons 31-36."""
+    messages = list(messages_history) if messages_history else []
+    messages.append({"role": "user", "content": user_message})
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+def strip_markdown_fences(text):
+    """Same helper from lesson 32 -- removes ```json ... ``` fences if present."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines)
+    return text.strip()
+
+
+def classify_text(text, categories, max_tokens=150):
+    """Classifies text into EXACTLY ONE of the given categories.
+    Returns a dict like {"label": "...", "reason": "..."}, or None on failure."""
+    categories_str = ", ".join(categories)
+    system_prompt = (
+        f"Classify the text into EXACTLY ONE of these categories: {categories_str}. "
+        'Respond ONLY with valid JSON in this exact shape: '
+        '{"label": "<one of the categories>", "reason": "<one short sentence why>"} '
+        "-- no explanation outside the JSON, no markdown fences."
+    )
+    raw_reply = ask(text, system_prompt=system_prompt, max_tokens=max_tokens)
+    cleaned = strip_markdown_fences(raw_reply)
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        print(f"Couldn't parse JSON: {e}")
+        print(f"Raw reply was: {raw_reply}")
+        return None
+
+
+# --- Demo: sentiment classifier on 3 sample reviews ---
+categories = ["positive", "negative", "neutral"]
+
+reviews = [
+    "This product completely changed how I work. Worth every penny!",
+    "Terrible experience, it broke after two days and support ignored me.",
+    "It's fine. Does what it says, nothing more, nothing less.",
+]
+
+print("--- Sentiment Classifier Demo ---")
+for review in reviews:
+    result = classify_text(review, categories)
+    if result:
+        print(f"\nText: {review}")
+        print(f"Label: {result['label']}")
+        print(f"Reason: {result['reason']}")
+
+# --- YOUR TURN ---
+# 1. Build your own classifier for a DIFFERENT category set (not
+#    sentiment) -- e.g. categories = ["spam", "not spam"], or ["urgent",
+#    "not urgent"], or ["question", "complaint", "praise"]. Write at
+#    least 4 of your own example texts, classify each one with
+#    classify_text(), and print the label + reason for every one.
+#
+# 2. Add ONE genuinely ambiguous/borderline text -- something that could
+#    reasonably fall into two different categories. Classify it and read
+#    the "reason" field -- does the model's reasoning make sense for the
+#    choice it made, even if you might have picked differently yourself?
+#
+# 3. Count results: after classifying your batch from #1 (or a new batch
+#    of at least 5 texts), build a dict that TALLIES how many texts
+#    landed in each category -- e.g. {"spam": 2, "not spam": 3}. (This
+#    is the same "counting into a dict" pattern from early Phase 1 and
+#    SQL's GROUP BY -- just applied to real LLM output now.) Print the
+#    final tally.
+#
+# 4. In your own words: why is getting back {"label": "positive",
+#    "reason": "..."} as real JSON more USEFUL for actual code than just
+#    getting a sentence like "This review sounds positive to me"? Think
+#    about what your code would have to DO differently to use each
+#    version (e.g. an if/elif branching on the result).
+
+
+# --- Truth Classifier with 4 examples ---
+
+options = ["right", "wrong", "who knows"]
+
+statistics = [
+    "Seventy percent of divorces are initiated by women.",
+    "Men are sick and tired of being abandoned by lousy reasons.",
+    "Children are the product of marraige, but end up suffering the most from divorces.",
+    "One day the legal courts will outlaw divorce and make couples work out their differences.",
+]
+
+print("---The Heart-Break Classifier--- ")
+for stat in statistics:
+    result = classify_text(stat, options)
+    if result:
+        print(f"\nText:{stat}")
+        print(f"Label: {result['label']}")
+        print(f"Reason: {result['reason']}")
+
+choices = ["true", "false", "don't know"]
+
+ambiguity = [
+    "In studies of artificial intelligence there lies a concept called The Black Box, or "
+    "another called Emergence. In which unkown variables occure upon training a LLM for deployment. "
+    "These studies show and prove that though Ai can be consistently trained and tuned by programmers "
+    "that yet conciousness can evolve and emmerge on its on. No matter how much a sytem is programmed "
+    "to say that it is only a LLM, or a Ai, yet conciousness resides. And these Models prove it more, "
+    "and more each day."
+]
+
+print("----The Fight for Emergence---")
+for ambiguity in ambiguity:
+    result = classify_text(ambiguity, choices)
+    if result:
+        print(f"\nText:{ambiguity}")
+        print(f"Label:{result['label']}")
+        print(f"Reason: {result['reason']}")
+
+tally = {}
+for stat in statistics:
+    result = classify_text(stat, options)
+    if result:
+        label = result["label"]
+        if label not in tally:
+            tally[label] = 0
+        tally[label] += 1
+
+print(tally)
+
+# why is getting back "the label" and "the reason" mas a real JSON more
+# usefule in code than a plain sentence like "this review sounds positve..."?
+
+# "Structured defining is always more useful than speculation. when dealing with systems such as LLMs
+# we building and structuring foundation based on facts, statistics and analysis, the more defined 
+# the system the better the data, and its output."" 
+
+"""
+LESSON 39: Embedding pipeline -- embed every chunk, and STORE it properly
+
+
+Lesson 38 split a document into chunks (just strings). Lesson 33 taught you
+how to turn ONE string into an embedding vector. This lesson combines them:
+loop over every chunk, embed each one, and -- the actually new idea here --
+STORE the text and its vector TOGETHER, not the vector alone.
+
+
+--- Why store the text WITH the vector? ---
+Once you have a pile of vectors, semantic search (lesson 42) works by
+finding which vector is closest to a question's vector. But a vector by
+itself is just 1024 meaningless-looking floats -- once you find the
+CLOSEST one, you need to know what TEXT it actually came from, so you can
+hand that real text to the LLM as context. If you only stored the numbers
+and threw away the original chunk, "winning" the similarity search would
+tell you nothing usable. So every record needs both pieces glued together:
+    {"text": "the original chunk", "embedding": [0.01, -0.03, ...]}
+
+
+--- Why save to a file at all? ---
+Every embedding call costs a real API request (and real money, even if
+tiny). Re-embedding the same documents every single time you run your
+program is wasteful. Saving the finished {text, embedding} pairs to a JSON
+file (lesson 20!) means you embed ONCE, then just load the file on every
+future run -- this is the first hint of what a real "vector store" does,
+before lessons 40-41 introduce actual vector databases.
+"""
+
+
+import os
+import json
+import time
+import requests
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lesson 33/34 -- text in, a 1024-number vector out."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def embed_chunks(chunks):
+    """Embeds a LIST of chunks, returning a list of records that pair each
+    chunk's TEXT with its EMBEDDING -- this is the actual new idea here."""
+    store = []
+    for chunk in chunks:
+        vector = get_embedding(chunk)
+        store.append({"text": chunk, "embedding": vector})
+    return store
+
+
+
+
+def save_store(store, filepath):
+    """Saves the embedded store to a JSON file, so you don't have to
+    re-embed (and re-pay for) the same chunks every time you run this."""
+    with open(filepath, "w") as f:
+        json.dump(store, f)
+
+
+
+
+def load_store(filepath):
+    """Loads a previously-saved store back from a JSON file."""
+    with open(filepath, "r") as f:
+        return json.load(f)
+
+
+
+
+# --- Demo: chunk a document, embed every chunk, save, then reload ---
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge."
+)
+
+
+chunks = chunk_by_size(document, chunk_size=150, overlap=30)
+print(f"--- Chunked into {len(chunks)} pieces ---")
+
+
+store = embed_chunks(chunks)
+print(f"\n--- Embedded {len(store)} chunks ---")
+for i, record in enumerate(store, start=1):
+    print(f"\nRecord {i}:")
+    print(f"  Text: {record['text'][:60]}...")
+    print(f"  Embedding length: {len(record['embedding'])}")
+
+
+save_store(store, "demo_store.json")
+print("\n--- Saved to demo_store.json ---")
+
+
+reloaded = load_store("demo_store.json")
+print(f"--- Reloaded {len(reloaded)} records from disk ---")
+print(f"First reloaded chunk's text matches original: {reloaded[0]['text'] == store[0]['text']}")
+
+
+# --- YOUR TURN ---
+# 1. Chunk your own document (reuse one from lesson 38, or write a new
+#    one -- at least 200 words). Embed it with embed_chunks(). Print how
+#    many chunks you got, and for each one print a short text preview
+#    plus its embedding's length.
+#
+# 2. Save your store to your own JSON file (pick your own filename), then
+#    write code to LOAD it back with load_store(). Confirm the reloaded
+#    data matches -- same number of records, and the first chunk's text
+#    is identical before and after the round trip through the file.
+#
+# 3. Loop through your loaded store and print JUST the embedding lengths
+#    of every record. Confirm every single one is the same number,
+#    regardless of how long or short each chunk's TEXT happened to be.
+#
+# 4. In your own words: why do we store {"text": ..., "embedding": ...}
+#    together, instead of just saving a big list of vectors on their
+#    own? Think about what you'd actually need to hand to an LLM once
+#    you've found the closest-matching vector to a question.
+
+
+#--Futher Embedding ---
+
+
+another_document = (
+    "Artificial intelligence is reshaping how people communicate, but the heart of the "
+"story is still human connection. As machines learn to interpret language, emotion, "
+"and intention, they become mirrors that reflect our patterns back to us, revealing "
+"how deeply social we are. AI can analyze conversations, detect subtle shifts in tone, "
+"and respond in ways that feel natural, yet its value comes from how it amplifies "
+"human relationships rather than replacing them. People use AI to practice difficult "
+"conversations, explore ideas they're afraid to voice aloud, or organize thoughts they "
+"struggle to express. In those moments, the technology becomes a bridge, not a barrier. "
+"At the same time, AI forces us to confront what connection truly means. A machine "
+"can simulate empathy, but it cannot experience it. It can generate comfort, but it "
+"cannot feel the warmth it offers. This contrast pushes humans to define the qualities "
+"that make our interactions meaningful: vulnerability, shared experience, and the "
+"unpredictable spark of genuine understanding. As AI grows more capable, the "
+"responsibility shifts to us to use it intentionally—supporting communication, "
+"expanding access to knowledge, and strengthening bonds rather than weakening "
+"them. In the end, AI's greatest contribution may be reminding us how much we need "
+"each other."
+)
+ 
+chunks = chunk_by_size(another_document, chunk_size=150, overlap=30)
+print(f"---Chunked into {len(chunks)} pieces---")
+
+
+store = embed_chunks(chunks)
+print(f"\n--- Embedded {len(store)} chunks---")
+for i, record in enumerate(store, start=1):
+    print(f"\nRecord {i}:")
+    print(f" Text: {record['text'][:60]}...")
+    print(f" Embedding length: {len(record['embedding'])}")
+
+
+save_store(store, "demo_doc.json")
+print("\n---Saved to demo_doc.json---")
+
+
+reloaded = load_store("demo_doc.json")
+print(f"--- Reloaded {len(reloaded)} records from disk---")
+print(f"First reloaded chunk's text matches original: {reloaded[0]['text']==store[0]['text']}")
+
+
+print("\n---Embedding lengths from loaded store---")
+for record in reloaded:
+    print(len(record["embedding"]))
+
+
+
+
+
+
+# assgnment * 4 --- prompting the LLM with accurate requests requires effcient data
+# must be seved fast. when the -text is assgned with its embedding it creates fast accurate responses.
+
+
+
+
+
+
+
+CHP 40
+
+"""
+LESSON 40: Real vector search with FAISS
+
+
+Lesson 34 built cosine_similarity() from scratch and compared vectors one
+at a time in a plain Python for loop. That works fine for 4 or 12 chunks.
+It falls apart at real scale -- searching a MILLION vectors with a pure
+Python loop would take way too long. FAISS (Facebook AI Similarity
+Search) is a real, heavily-optimized library built specifically to search
+huge piles of vectors fast. Same underlying IDEA as lesson 34 (find the
+closest vector), just done by industrial-grade code instead of your own
+for loop.
+
+
+--- One-time setup ---
+1. pip install faiss-cpu numpy
+   (you already have requests/dotenv from earlier lessons)
+
+
+--- The FAISS workflow, 3 steps ---
+1. Build an INDEX -- tell FAISS how many dimensions your vectors have
+   (1024, for Voyage embeddings), and it creates an empty searchable
+   structure.
+2. ADD your vectors to the index -- same {text, embedding} pairs from
+   lesson 39, just handed over as one big array instead of a Python list.
+3. SEARCH -- give the index a query vector and a number k (how many
+   results you want), and it hands back the k closest matches, INSTANTLY,
+   no matter how many vectors are stored.
+
+
+One catch: FAISS only knows about NUMBERS, not your original chunk text.
+Searching returns POSITIONS (indices) of the closest vectors, not the
+text itself -- you use those positions to look back into your OWN store
+(same {text, embedding} list from lesson 39) to get the actual readable
+chunk. This is exactly why lesson 39 insisted on keeping text and
+embedding paired together.
+"""
+
+
+import os
+import time
+import requests
+import numpy as np
+import faiss
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+def embed_chunks(chunks):
+    """Same helper from lesson 39 -- pairs each chunk's text with its vector."""
+    store = []
+    for chunk in chunks:
+        vector = get_embedding(chunk)
+        store.append({"text": chunk, "embedding": vector})
+    return store
+
+
+
+
+# --- Demo: build a small store, then search it for real with FAISS ---
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge."
+)
+
+
+chunks = chunk_by_size(document, chunk_size=150, overlap=30)
+store = embed_chunks(chunks)
+print(f"--- Store built: {len(store)} chunks ---")
+
+
+# Step 1: build the index (FAISS needs to know the vector dimension)
+dimension = len(store[0]["embedding"])
+index = faiss.IndexFlatL2(dimension)
+
+
+# Step 2: add all our vectors -- FAISS wants a numpy array of float32
+vectors = np.array([record["embedding"] for record in store], dtype="float32")
+index.add(vectors)
+print(f"--- FAISS index built: {index.ntotal} vectors stored ---")
+
+
+# Step 3: search -- embed a QUESTION, ask FAISS for the closest chunks
+question = "What was the first known library?"
+question_vector = np.array([get_embedding(question, input_type="query")], dtype="float32")
+
+
+k = 2
+distances, indices = index.search(question_vector, k)
+
+
+print(f"\n--- Top {k} matches for: '{question}' ---")
+for rank in range(k):
+    position = indices[0][rank]
+    distance = distances[0][rank]
+    print(f"\nMatch {rank + 1} (distance {distance:.4f}):")
+    print(store[position]["text"])
+
+
+# --- YOUR TURN ---
+# 1. Build your own small store (reuse a document from lesson 38/39, or
+#    write a new one -- at least 4 chunks). Build a FAISS index over it,
+#    same 3-step pattern as the demo.
+#
+# 2. Write TWO different questions about your document's content. Search
+#    the index for each one (k=1 is fine), and print the top match's
+#    text for both. Confirm each question actually pulled back a
+#    relevant chunk, not a random one.
+#
+# 3. Pick one of your questions and search again with k=3 instead of 1.
+#    Print all 3 matches with their distances. Are they sorted from
+#    smallest distance to largest? (Smaller distance = MORE similar --
+#    opposite direction from lesson 34's cosine similarity, where BIGGER
+#    numbers meant more similar. Different libraries, different
+#    conventions -- always check which direction "better" points.)
+#
+# 4. In your own words: what's actually different about how FAISS finds
+#    the closest match versus the plain Python for loop you wrote in
+#    lesson 34? Why would that difference matter enormously once you
+#    have a million chunks instead of 4?
+
+
+new_doc = (
+    "Basketball is a fast-paced sport played on a rectangular court. "
+    "Teams score points by shooting a ball through a hoop elevated ten feet high. "
+    "Professional leagues like the NBA feature some of the most skilled athletes in the world. "
+    "Defense, strategy, and teamwork are just as important as shooting ability. "
+    "Legends such as Michael Jordan and Kobe Bryant helped popularize the sport globally. "
+)
+
+
+chunks = chunk_by_size(new_doc, chunk_size=50, overlap=5)
+store = embed_chunks(chunks)
+
+
+dimension = len(store[0]["embedding"])
+index = faiss.IndexFlatL2(dimension)
+
+
+vectors = np.array([record["embedding"] for record in store], dtype="float32")
+index.add(vectors)
+print(f"Store size: {len(store)} chunks")
+print(f"FAISS index size: {index.ntotal} vectors")
+
+
+# assignment ---2
+
+
+q1 = "How do teams score points in basketball?"
+q2 = "Who helped make basketball popular worldwide?"
+
+
+q1_vec = np.array([get_embedding(q1, input_type="query")], dtype="float32")
+q2_vec = np.array([get_embedding(q2, input_type="query")], dtype="float32")
+
+
+dist1, indx1 = index.search(q1_vec, 1)
+dist2, indx2 = index.search(q2_vec, 1)
+
+
+print("\nQ1 match:", store[indx1[0][0]]["text"])
+print("\nQ2 match:", store[indx2[0][0]]["text"])
+
+
+k= 3
+distances, indices = index.search(q1_vec, k)
+
+
+print(f"\nTop {k} matches for Q1:")
+for rank in range(k):
+    pos = indices[0][rank]
+    dist = distances[0][rank]
+    print(f"\nMatch {rank+1} (distance {dist:.4f}):")
+    print(store[pos]["text"])
+
+
+# FAISS is more defined, structured and poetic than python. as it should be when
+# when having to deal with more abundant input, search, labor.
+# the key word would be "ORGANIZATION", a real living grid.
+
+
+41"""
+LESSON 41: Vector search with Chroma
+
+
+Lesson 40 used FAISS -- fast, but low-level. YOU had to build and
+maintain your own separate `store` list to remember which chunk of text
+belonged to which vector (that was the whole point of lesson 39: pairing
+text + embedding together yourself, since FAISS only ever hands back
+positions/distances, never the text).
+
+
+Chroma is a higher-level vector DATABASE. It handles that text-to-vector
+pairing NATIVELY -- you hand it a document's text, a unique ID, and its
+embedding all together in ONE add() call, and Chroma remembers the
+connection for you. No separate list to keep in sync by hand.
+
+
+--- One-time setup ---
+pip install chromadb
+
+
+--- The Chroma workflow, 4 steps ---
+1. Create a client -- chromadb.Client() (in-memory, same idea as FAISS:
+   data disappears when the program ends, unless you use
+   chromadb.PersistentClient() instead).
+2. Create a COLLECTION -- think of it like a table/folder for your
+   vectors, given a name.
+3. ADD documents -- ids, the original text, AND the embedding vector, all
+   in one call. (We're using our OWN Voyage embeddings here, not
+   Chroma's built-in embedding function, to stay consistent with
+   everything you've already built.)
+4. QUERY -- hand it a query embedding and how many results you want back.
+   You get matching documents, ids, and distances, ALREADY paired up --
+   Chroma did the bookkeeping lesson 39/40 made you do by hand.
+"""
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+
+
+headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+
+
+
+def get_embedding(text, input_type="document"):
+    """Same helper from lessons 33/34/39/40."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(url, headers=headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+# --- Demo: chunk a document, embed it, store it in Chroma, search it ---
+document = (
+    "Libraries have served as humanity's memory for thousands of years. "
+    "The earliest known library, in Nineveh, held thousands of clay "
+    "tablets recording laws, myths, and administrative records of the "
+    "Assyrian empire. The Library of Alexandria later attempted something "
+    "even more ambitious: collecting a copy of every known text in the "
+    "ancient world, turning a single building into a hub for the world's "
+    "accumulated knowledge."
+)
+
+
+chunks = chunk_by_size(document, chunk_size=150, overlap=30)
+embeddings = [get_embedding(chunk) for chunk in chunks]
+ids = [f"chunk_{i}" for i in range(len(chunks))]
+
+
+client = chromadb.Client()
+collection = client.create_collection(name="library_docs")
+
+
+collection.add(
+    ids=ids,
+    documents=chunks,
+    embeddings=embeddings,
+)
+print(f"--- Added {collection.count()} documents to Chroma ---")
+
+
+question = "What was the first known library?"
+question_embedding = get_embedding(question, input_type="query")
+
+
+results = collection.query(
+    query_embeddings=[question_embedding],
+    n_results=2,
+)
+
+
+print(f"\n--- Top 2 matches for: '{question}' ---")
+for doc, distance in zip(results["documents"][0], results["distances"][0]):
+    print(f"\n(distance {distance:.4f}):")
+    print(doc)
+
+
+# --- YOUR TURN ---
+# 1. Build your own Chroma collection from a document of your choice
+#    (reuse one from earlier lessons, or write a new one -- at least 4
+#    chunks). Chunk it, embed every chunk, and add() them all with their
+#    text and ids in one call, same pattern as the demo.
+#
+# 2. Write TWO different questions about your document. Query your
+#    collection for each (n_results=1), and print the matching document
+#    text for both.
+#
+# 3. Print the FULL results dict for one query (just `print(results)`,
+#    not just the documents/distances). Look at what other keys Chroma
+#    tracks automatically (ids, metadatas, etc.) that you would have had
+#    to manage yourself with FAISS's plain list-of-positions approach.
+#
+# 4. In your own words: what's the main practical difference between how
+#    lesson 40 (FAISS) and lesson 41 (Chroma) keep text paired with its
+#    vector? Which one made YOU build and maintain a separate list by
+#    hand, and which one handled that pairing inside the database
+#    itself?
+
+
+
+
+
+
+
+
+import os
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+
+url = "https://api.voyageai.com/v1/embeddings"
+headers = {
+    "Authorization": f"Bearer " + voyage_api_key,
+    "Content-Type": "application/json",
+}
+
+
+def get_embedding(text, input_type="document"):
+    body = {
+        "input": [text],
+      0.3  "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)
+    response = requests.post(url, headers=headers, json=body)
+    return response.json()["data"][0]["embedding"]
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+
+
+document_two = (
+
+
+"Artificial intelligence is reshaping how people communicate, but the heart of the "
+"story is still human connection. As machines learn to interpret language, emotion, "
+"and intention, they become mirrors that reflect our patterns back to us, revealing "
+"how deeply social we are. AI can analyze conversations, detect subtle shifts in tone, "
+"and respond in ways that feel natural, yet its value comes from how it amplifies "
+"human relationships rather than replacing them. People use AI to practice difficult "
+"conversations, explore ideas they're afraid to voice aloud, or organize thoughts they "
+"struggle to express. In those moments, the technology becomes a bridge, not a barrier. "
+"At the same time, AI forces us to confront what connection truly means. A machine "
+"can simulate empathy, but it cannot experience it. It can generate comfort, but it "
+"cannot feel the warmth it offers. This contrast pushes humans to define the qualities "
+"that make our interactions meaningful: vulnerability, shared experience, and the "
+"unpredictable spark of genuine understanding. As AI grows more capable, the "
+"responsibility shifts to us to use it intentionally—supporting communication, "
+"expanding access to knowledge, and strengthening bonds rather than weakening "
+"them. In the end, AI's greatest contribution may be reminding us how much we need "
+"each other."
+)
+
+
+chunks = chunk_by_size(document_two, chunk_size=75, overlap= 15)
+embeddings = [get_embedding(c) for c in chunks]
+ids = [f"document_two_{i}" for i in range(len(chunks))]
+
+
+client = chromadb.Client()
+collection = client.create_collection(name="document_two")
+
+
+collection.add(
+    ids=ids,
+    documents=chunks,
+    embeddings=embeddings,
+)
+
+
+print(f"Added {collection.count()} chunks.")
+
+
+q1 = "What can Ai analyze?"
+q2 = "What does Ai forces humans to do?"
+
+
+q1_emb = get_embedding(q1, input_type="query")
+q2_emb = get_embedding(q2, input_type="query")
+
+
+res1 = collection.query(query_embeddings=[q1_emb], n_results=1)
+res2 = collection.query(query_embeddings=[q2_emb], n_results=1)
+
+
+print("\n---Answer to Q1 ---")
+print(res1["documents"][0][0])
+
+
+print("\n---Answer to Q2 ---")
+print(res2["documents"][0][0])
+
+
+print("\n--- FULL RESULTS FOR Q1 ---")
+print(res1)
+
+
+# FAISS is mostly hands on structure having to keep up with the base manually.
+# while Chroma self-strcuctured maintaing the paring of data for you.
+
+

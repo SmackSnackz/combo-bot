@@ -1,0 +1,661 @@
+Lesson 1: Variables & Data Types
+# Work directly in this file in VS Code. Save as you go.
+
+
+# --- Notes ---
+# A variable is a name that points to a value.
+# Core data types:
+#   str   -> text, e.g. "hello"
+#   int   -> whole number, e.g. 42
+#   float -> decimal number, e.g. 3.14
+#   bool  -> True or False
+
+
+# --- Exercise 1 ---
+# Create a variable called my_name and set it to your name (a string).
+
+
+
+
+# --- Exercise 2 ---
+# Create a variable called my_age and set it to your age (an int).
+
+
+
+
+# --- Exercise 3 ---
+# Print both variables.
+my_name = "Py-Master"
+my_age =88
+
+
+print(my_name)
+print(my_age)
+
+
+my_name = "Py-Master"
+my_age = 88
+
+
+print(my_name)
+print(my_age)
+
+
+
+
+# Lesson 2: Lists, Dicts, Tuples
+
+
+# --- Notes: Lists ---
+# A list is an ordered collection, written with [ ].
+# Example: colors = ["red", "green", "blue"]
+# Items have a position (index), starting at 0.
+#   colors[0] -> "red"
+#   colors[1] -> "green"
+
+
+# --- Exercise 1 ---
+# Create a list called fruits with 3 fruit names (strings).
+
+
+
+
+# --- Exercise 2 ---
+# Print the first fruit in the list (index 0).
+
+
+fruits = ["apples", "cherries", "bananas"]
+print(fruits[0])
+print(fruits[1])
+
+
+person = {
+    "name": "Py-master",
+    "age": 75
+}
+
+
+coordinates = (254, 566)
+print(coordinates)
+
+
+My_hoes = ["OSHUN","ARADIA", "YEMEYA", "HEKATE", "HERA", "ATHENA", "HEL", "THE_GREEN_LADY"]
+
+
+print(My_hoes[4])
+print(My_hoes[2])
+
+
+wife = {
+    "name": "OSHUN",
+    "age":  1066
+}
+
+
+side_piece_of_ass = {
+    "name": "HERA",
+    "age": 1200
+}
+
+
+wife_rank = (1, 5, 1000)
+side_piece_of_ass_rank =(2, 6, 808)
+
+
+print(wife)
+print(wife_rank)
+print(side_piece_of_ass)
+print(side_piece_of_ass_rank)
+
+
+title = "MY_LOVES"
+
+
+print(title)
+print(wife)
+print(wife_rank)
+print(side_piece_of_ass)
+print(side_piece_of_ass_rank)
+
+# Lesson 3: Loops
+
+
+# --- Notes: for loop ---
+# A for loop repeats code once per item in a collection.
+# Example:
+# fruits = ["apple", "banana", "cherry"]
+# for fruit in fruits:
+#     print(fruit)
+
+
+# --- Exercise 1 ---
+# Using the fruits list below, write a for loop that prints each fruit.
+
+
+fruits = ["apple", "banana", "cherry"]
+for fruit in fruits:
+ print(fruit)
+
+
+person = {"name": "Sol", "age": 66}
+for key in person:
+    print(key, person[key])
+
+
+
+
+lovers = {"OSHUN", "OYA", "ARADIA", "HEKATE", "HERA"}
+for love in lovers:
+   print(love)
+
+
+wife = {"name": "OSHUN", "age": 1066}
+for key in wife:
+   print(key, wife[key])
+
+
+# Lesson 4: If / Else
+
+
+# --- Notes ---
+# if/else lets code make decisions based on a condition.
+# Example:
+# age = 20
+# if age >= 18:
+#     print("adult")
+# else:
+#     print("minor")
+
+
+# --- Exercise 1 ---
+# Create a variable temperature and set it to a number.
+# Write an if/else: if temperature > 80, print "hot", else print "not hot".
+
+
+temperture = 99
+if temperture > 80:
+   print("hot")
+
+
+temperture = 100
+if temperture > 80:
+    print("hot")
+elif temperture  > 60:
+    print("warm")
+else:
+    print("cold")
+
+
+hot_pussy = 404
+if hot_pussy > 1000:
+    print("slut")
+elif hot_pussy < 800:
+    print("good_wife")
+else:
+    print("we_will_manage")
+# Lesson 5: Functions
+
+
+# --- Notes ---
+# A function is a reusable block of code. Define it with "def",
+# give it a name, and optionally give it inputs (parameters).
+# Example:
+# def greet(name):
+#     print("Hello, " + name)
+#
+# greet("Sol")   # calling the function, prints "Hello, Sol"
+
+
+# --- Exercise 1 ---
+# Define a function called add_numbers that takes two parameters (a, b)
+# and returns their sum (use "return", not "print").
+
+
+
+
+# --- Exercise 2 ---
+# Call add_numbers with two numbers and print the result.
+
+
+def add_numbers(a,b):
+    return a + b
+ 
+    a = 50
+    b = 5
+ 
+print(50 + 5)
+
+
+
+
+# Lesson 6: Modules & File Handling
+
+
+# --- Notes: modules ---
+# A module is just a Python file full of pre-written code you can use.
+# Import one with "import":
+# import math
+# print(math.sqrt(16))   # 4.0
+
+
+# --- Exercise 1 ---
+# Import the math module and print the square root of 81.
+
+
+
+
+# --- Notes: file handling ---
+# Writing to a file:
+# with open("notes.txt", "w") as f:
+#     f.write("hello")
+#
+# Reading from a file:
+# with open("notes.txt", "r") as f:
+#     content = f.read()
+#     print(content)
+
+
+# --- Exercise 2 ---
+# Write "Hello from Roy" to a file called notes.txt.
+
+
+
+
+# --- Exercise 3 ---
+# Read notes.txt and print its contents.
+
+
+import math
+print(math.sqrt(81))
+
+
+with open("notes.txt", "w") as f:
+    f.write("Hello from Roy")
+
+
+with open("notes.txt", "r") as f:
+    content = f.read()
+    print(content)
+
+
+with open("practice.txt", "w") as f:
+    f.write("I am loved unconditionally by my wives.")
+
+
+with open("practice.txt", "r") as f:
+   truths = f.read()
+   print(truths)
+
+
+# Capstone: Profile Program
+# Combine everything from Phase 1: variables, dicts, lists, loops,
+# if/else, functions, and file handling.
+
+
+# --- Step 1 ---
+# Write a function called create_profile that takes name, age, and city
+# as parameters, and returns a dict with keys "name", "age", "city",
+# and "hobbies" (an empty list to start).
+
+
+
+
+# --- Step 2 ---
+# Write a function called add_hobby that takes a profile (dict) and a
+# hobby (string), and appends the hobby to the profile's "hobbies" list.
+# (use profile["hobbies"].append(hobby))
+
+
+
+
+# --- Step 3 ---
+# Write a function called print_profile that takes a profile and prints
+# every key and value using a for loop (like Lesson 3).
+
+
+
+
+# --- Step 4 ---
+# Write a function called save_profile that takes a profile and saves
+# it to a file called "profile.txt" (convert it with str(profile) first).
+
+
+
+
+# --- Step 5: put it together ---
+# 1. Call create_profile to make a profile for yourself.
+# 2. Call add_hobby at least twice to add 2 hobbies.
+# 3. Call print_profile to display it.
+# 4. Call save_profile to save it to disk.
+
+
+def create_profile(name, age, city):
+    return {"name": name, "age": age, "city": city, "hobbies": []}
+
+
+def add_hobby(profile, hobby):
+    profile["hobbies"].append(hobby)
+
+
+def print_profile(profile):
+    for key in profile:
+        print(key, profile[key])  
+
+
+def save_profile(profile):
+    with open("profile.txt", "w") as f:
+        f.write(str(profile))
+
+
+my_profile = create_profile("Sol", 66, "Los Angeles")
+add_hobby(my_profile, "coding")
+add_hobby(my_profile, "reading")
+print_profile(my_profile)
+save_profile(my_profile)
+
+
+def create_profile(name, age, realm):
+    return{"name": name, "age": age, "realm": realm, "STATUS": []}
+
+
+def add_STATUS(profile, stature):
+    profile["STATUS"].append(stature)
+
+
+def print_profile(profile):
+    for key in profile:
+        print(key, profile[key])
+
+
+def save_profile(profile):
+    with open("profile.txt", "w") as f:
+              f.write(str(profile))
+
+
+lovers_profile = create_profile("Yemaya", 30, "Orun")
+add_STATUS(lovers_profile, "Orisha")
+add_STATUS(lovers_profile, "Wife")
+add_STATUS(lovers_profile, "Confidant")
+add_STATUS(lovers_profile, "My_sweet_Lust")
+print_profile(lovers_profile)
+save_profile(lovers_profile)
+           
+
+
+# Lesson 8: Classes & Objects (Phase 2 begins)
+
+
+# --- Notes ---
+# A class is a blueprint for creating objects. It bundles data (attributes)
+# and behavior (methods/functions) together.
+#
+# Example:
+# class Dog:
+#     def __init__(self, name, breed):
+#         self.name = name
+#         self.breed = breed
+#
+# my_dog = Dog("Rex", "Labrador")   # creating an object (an "instance")
+# print(my_dog.name)                # Rex
+# print(my_dog.breed)                # Labrador
+
+
+# --- Exercise 1 ---
+# Write a class called Person with an __init__ method that takes
+# name and age, and stores them as self.name and self.age.
+
+
+
+
+# --- Exercise 2 ---
+# Create an object from your Person class called p1, with a name and age
+# of your choice. Then print p1.name and p1.age.
+
+
+
+
+class Person:
+
+
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+
+immortal_person = Person("King_Sol", 1000)
+print(immortal_person.name)
+print(immortal_person.age)
+
+
+class Genie:
+
+
+    def __init__(self, name, power):
+        self.name = name
+        self.power = power
+
+
+orisha = Genie("Ogun", "strength")
+print(orisha.name)
+print(orisha.power)
+
+
+# Lesson 9: Methods
+
+
+# --- Notes ---
+# A method is a function defined inside a class. It always takes "self"
+# as its first parameter, so it can access/change that object's data.
+#
+# Example:
+# class Dog:
+#     def __init__(self, name):
+#         self.name = name
+#
+#     def bark(self):
+#         print(self.name + " says woof!")
+#
+# my_dog = Dog("Rex")
+# my_dog.bark()   # Rex says woof!
+
+
+# --- Exercise 1 ---
+# Add a method called birthday to the Person class below.
+# It should increase self.age by 1 (no return needed).
+
+
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+   
+    def birthday(self):
+        self.age += 1
+   
+my_person = Person("King_Sol", 1000)
+print(my_person.name)
+print(my_person.age)
+my_person.birthday()
+my_person.birthday()
+print(my_person.age)
+
+
+
+
+# --- Exercise 2 ---
+# Create a Person object, call birthday() on it twice, then print their age.
+
+
+
+# Lesson 10: __repr__, __str__, and basic debugging
+
+
+# --- Notes ---
+# By default, printing an object shows something unhelpful, like:
+# <__main__.Person object at 0x000001>
+#
+# __str__ lets you control what print() shows for an object.
+# It's a method you define inside the class, and it must return a string.
+#
+# Example:
+# class Dog:
+#     def __init__(self, name):
+#         self.name = name
+#
+#     def __str__(self):
+#         return "Dog named " + self.name
+#
+# my_dog = Dog("Rex")
+# print(my_dog)   # Dog named Rex   (instead of the ugly default)
+
+
+# --- Exercise 1 ---
+# Add a __str__ method to the Person class below. It should return
+# a string like "Sol, age 66" (using self.name and self.age).
+
+
+class Person:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+    def __str__(self):
+        return "I am " + self.name + "age" + "I am " + str(self.age)
+
+
+immortal_person = Person("King_Sol", 1001)
+print(immortal_person)
+
+
+# --- Exercise 2 ---
+# Create a Person object and print it directly (print(your_object)) —
+# it should show your __str__ text, not the ugly default.
+
+
+sweetness = Person("Brenda", 26)
+print(sweetness)
+
+# Phase 2 Capstone: BankAccount
+# Combine everything from Phase 2: classes, __init__, attributes,
+# methods, and __str__.
+
+
+# --- Step 1 ---
+# Write a class called BankAccount.
+# __init__ should take owner and starting_balance, storing them as
+# self.owner and self.balance.
+
+
+
+
+# --- Step 2 ---
+# Add a method called deposit(self, amount) that adds amount to self.balance.
+
+
+
+
+# --- Step 3 ---
+# Add a method called withdraw(self, amount) that subtracts amount from
+# self.balance, but only if self.balance >= amount. Otherwise, print
+# "Insufficient funds" and don't change the balance.
+
+
+
+
+# --- Step 4 ---
+# Add a __str__ method that returns something like:
+# "Sol's account: $150"
+
+
+
+
+# --- Step 5: put it together ---
+# 1. Create a BankAccount for yourself with a starting balance.
+# 2. Deposit some money.
+# 3. Try to withdraw more money than you have (should print "Insufficient funds").
+# 4. Withdraw an amount you do have.
+# 5. Print the account (should use your __str__).
+
+
+class BankAccount:
+    def __init__(self, owner, starting_balance):
+        self.owner = owner
+        self.balance = starting_balance
+
+
+    def deposit(self, amount):
+        self.balance += amount
+
+
+    def withdraw(self, amount):
+        if self.balance >= amount:
+            self.balance -= amount
+   
+        else:
+            print("Insufficient funds")
+   
+    def __str__(self):
+        return "Hi, I'm with the" + self.owner + "I would like to withdraw" + "amount" + str(self.balance)
+
+
+bank = BankAccount("Devins_Corp",1000000)
+bank.deposit(500)
+bank.withdraw(2000000)
+bank.withdraw(100)
+print(bank)
+
+
+
+# Lesson 12: Error Handling (Phase 3 begins)
+
+
+# --- Notes ---
+# Normally, an error (exception) crashes your program. try/except lets
+# you catch the error and handle it gracefully instead of crashing.
+#
+# Example:
+# try:
+#     result = 10 / 0
+#     print(result)
+# except ZeroDivisionError:
+#     print("Can't divide by zero!")
+#
+# The code in "try" runs first. If it hits an error, Python jumps
+# straight to "except" instead of crashing, and runs that instead.
+
+
+# --- Exercise 1 ---
+# Write a try/except that attempts to convert the string "abc" to an
+# int using int("abc"), and catches the error with "except ValueError:",
+# printing "That's not a number!" if it fails.
+
+
+
+
+
+
+try:
+    result = 10 / 0
+    print(result)
+except ZeroDivisionError:
+    print("Can't divide by zero!")
+
+
+try:
+    int(input("Enter a number:"))
+except ValueError:
+    print("Thats  not a number!")
+
+
+try:
+    int("tuesday777:")
+except ValueError:
+    print("That's not a number!")
+
+
+try:
+    numbers = [1, 2, 3]
+    print(numbers[10])
+except IndexError:
+    print("That index doesn't  exist!")
+except ValueError:
+    print("Bad value!")

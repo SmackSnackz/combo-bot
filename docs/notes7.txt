@@ -1,0 +1,1104 @@
+"""
+LESSON 51: An MCP tool that calls a REAL external API
+
+
+Lesson 47's get_weather() was fake -- a hardcoded dict of 3 cities. This
+lesson makes it real: the tool actually reaches out over the internet to
+a live API and returns real, current data.
+
+
+We're using Open-Meteo's free GEOCODING API (no signup, no API key,
+no rate-limit hoops like Voyage's free tier gave you back in Phase 6):
+    GET https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1
+
+
+Give it a city name, it gives back real latitude, longitude, country,
+and population -- actual data from an actual external service, looked up
+live every time the tool runs.
+
+
+This is the exact same shape as every other MCP tool you've built
+(lessons 48-50): a plain Python function, @mcp.tool()-decorated, type
+hints generate the schema. The only thing that's new is what happens
+INSIDE the function -- a real `requests.get()` instead of pure
+computation or local disk access.
+
+
+--- Why this matters for MCP specifically ---
+A tool server doesn't have to be self-contained. It can be a thin wrapper
+around ANY external service -- a weather API, a stock price API, your
+company's internal REST API, anything reachable over HTTP. The LLM never
+knows or cares that there's a network call happening underneath; it just
+sees a tool with a name, a description, and a schema, exactly like every
+other tool you've built.
+"""
+
+
+import os
+from dotenv import load_dotenv
+
+
+load_dotenv(override=True)
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+anthropic_url = "https://api.anthropic.com/v1/messages"
+headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+import asyncio
+import requests
+from mcp.server import MCPServer
+from mcp import Client
+
+
+
+
+
+
+
+
+mcp = MCPServer("api-tool-demo")
+
+
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+
+
+
+
+@mcp.tool()
+def get_city_info(city: str) -> str:
+    """Look up real geographic information about a city using a live
+    external API (no API key required).
+
+
+    Args:
+        city: The name of the city to look up (e.g. "Chicago").
+    """
+    response = requests.get(GEOCODE_URL, params={"name": city, "count": 1})
+    data = response.json()
+
+
+    results = data.get("results")
+    if not results:
+        return f"No location found for '{city}'."
+
+
+    place = results[0]
+    return (
+        f"{place['name']}, {place.get('country', 'Unknown country')} -- "
+        f"latitude {place['latitude']}, longitude {place['longitude']}, "
+        f"population {place.get('population', 'unknown')}"
+    )
+
+
+ 
+       
+def mcp_tools_to_anthropic_format(tools_result):
+    """THIS TOOL converts what the MCP server told us about its
+    own tools into the exact shape Claude's API expects. MCP's Tool
+    objects already use the same field names (name, description,
+    input_schema) -- we're just repackaging them into plain dicts."""
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+        for tool in tools_result.tools
+    ]
+
+
+
+
+
+
+async def ask_with_mcp_tools(question, client, anthropic_tools, max_tokens=300):
+    """Same round trip as lesson 47's ask_with_tools(), except the tool
+    actually gets executed by calling THROUGH the MCP client instead of a
+    local dict lookup."""
+    messages = [{"role": "user", "content": question}]
+
+
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "tools": anthropic_tools,
+        "messages": messages,
+    }
+    response = requests.post(anthropic_url, headers=headers, json=body)
+    data = response.json()
+
+
+    if data.get("stop_reason") != "tool_use":
+        return data["content"][0]["text"], None
+
+
+    tool_use_block = next(b for b in data["content"] if b["type"] == "tool_use")
+    tool_name = tool_use_block["name"]
+    tool_input = tool_use_block["input"]
+
+
+
+
+    mcp_result = await client.call_tool(tool_name, tool_input)
+    tool_result_text = mcp_result.content[0].text
+
+
+    messages.append({"role": "assistant", "content": data["content"]})
+
+
+    messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_block["id"],
+                    "content": tool_result_text,
+                }
+            ],
+        })
+   
+    body["messages"] = messages
+    followup = requests.post(anthropic_url, headers=headers, json=body)      
+    followup_data = followup.json()
+    final_text = next(b["text"] for b in followup_data["content"] if b["type"] == "text")
+   
+    return final_text, {"tool": tool_name, "input": tool_input, "result": tool_result_text}
+
+
+async def main():
+    async with Client(mcp) as client:
+        result1 = await client.call_tool("get_city_info", {"city": "Chicago"})
+        print(f"get_city_info(Chicago) -> {result1.structured_content}")
+
+
+        result2 = await client.call_tool("get_city_info", {"city": "Tokyo"})
+        print(f"get_city_info(Tokyo) -> {result2.structured_content}")
+
+
+        # A city that doesn't exist -- confirm the tool fails GRACEFULLY,
+        # returning a normal message instead of crashing.
+        result3 = await client.call_tool("get_city_info", {"city": "Xyzzyplex"})
+        print(f"get_city_info(Xyzzyplex) -> {result3.structured_content}")
+
+
+
+
+        # --- Wiring the tool up to Claude (assignment 2) ---
+        tools_result = await client.list_tools()
+        anthropic_tools = mcp_tools_to_anthropic_format(tools_result)
+
+
+        question = "Where is Nairobi and how many people live there?"
+        answer, tool_used = await ask_with_mcp_tools(question, client, anthropic_tools)
+
+
+        print("\nClaude answer:", answer)
+        print("Tool used:", tool_used)
+   
+
+
+
+
+
+
+asyncio.run(main())
+
+
+# --- YOUR TURN ---
+# 1. Call get_city_info() with a real city of your choice (not one used
+#    above). Print the result and confirm the data looks real (a
+#    plausible latitude/longitude/population for that place).
+#
+# 2. Wire this tool up to Claude using lesson 49's pattern
+#    (mcp_tools_to_anthropic_format() + ask_with_mcp_tools()) -- you can
+#    copy those two functions from lesson 49 into this file. Ask Claude a
+#    real question like "Where is Nairobi and how many people live
+#    there?" and confirm it calls get_city_info() and answers using the
+#    REAL data that came back, not just its own training knowledge.
+#
+# 3. Try calling get_city_info() with something that isn't a real place
+#    at all (a random string). Confirm you get the graceful "No location
+#    found" message, not a crash.
+#
+# 4. In your own words: what changed inside get_city_info() compared to
+#    lesson 47's get_weather()? What stayed exactly the same about HOW
+#    the tool is declared and exposed to the model?
+
+
+
+
+52
+
+"""
+LESSON 52 CAPSTONE: An agent that automates a real task end-to-end
+
+
+Every MCP lesson so far (49, 51) used the SAME pattern: ask Claude one
+question, Claude asks for AT MOST one round of tool calls, you run them,
+send the results back, get one final answer. That's fine for "what is
+15 + 27" or "where is Nairobi" -- one fact, one tool, done.
+
+
+Real tasks are rarely that simple. "Look up two cities and write a
+report comparing them" needs THREE separate tool calls chained together
+(look up city 1, look up city 2, write the file) -- and the agent has to
+decide that order itself, using the result of one call to inform the
+next. This lesson builds the thing that makes that possible: a LOOP.
+
+
+--- The new idea: the agent loop ---
+Instead of asking Claude once, we ask Claude, run whatever tools it
+asks for, feed the results back, and ask again -- repeatedly -- until
+Claude stops asking for tools (stop_reason != "tool_use"). This is the
+actual shape of every real AI agent you've heard of (Claude Code, this
+very conversation, etc.): a loop of "think -> act -> observe -> think
+again" that keeps going until the task is done.
+
+
+--- Two safety details baked into the loop ---
+1. A single Claude turn can ask for MULTIPLE tools at once (e.g. "look
+   up Nairobi AND Tokyo" might come back as two tool_use blocks in one
+   response). The loop below handles however many show up in a turn,
+   not just one.
+2. max_steps is a hard ceiling on how many loop iterations we'll allow.
+   Without it, a confused model (or a genuinely impossible task) could
+   loop forever, burning API calls with no end. Real agents ALWAYS need
+   a circuit breaker like this.
+
+
+This capstone combines tools from BOTH lesson 50 (sandboxed file
+read/write) and lesson 51 (the real geocoding API) onto one server, so
+the agent has to chain a real API lookup together with a real file
+write to finish its task.
+"""
+
+
+import os
+import asyncio
+import requests
+from dotenv import load_dotenv
+from mcp.server import MCPServer
+from mcp import Client
+
+
+load_dotenv(override=True)
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+anthropic_url = "https://api.anthropic.com/v1/messages"
+headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+mcp = MCPServer("task-agent-demo")
+
+
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+
+
+# --- Same sandboxing pattern as lesson 50 ---
+FILES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_files")
+os.makedirs(FILES_DIR, exist_ok=True)
+
+
+
+
+def safe_path(filename: str) -> str:
+    """Builds a path INSIDE FILES_DIR, and refuses anything that tries to
+    escape it via '..' or an absolute path."""
+    if ".." in filename or os.path.isabs(filename):
+        raise ValueError(f"Unsafe filename rejected: {filename}")
+    return os.path.join(FILES_DIR, filename)
+
+
+
+
+@mcp.tool()
+def get_city_info(city: str) -> str:
+    """Look up real geographic information about a city using a live
+    external API (no API key required).
+
+
+    Args:
+        city: The name of the city to look up (e.g. "Chicago").
+    """
+    response = requests.get(GEOCODE_URL, params={"name": city, "count": 1})
+    data = response.json()
+
+
+    results = data.get("results")
+    if not results:
+        return f"No location found for '{city}'."
+
+
+    place = results[0]
+    return (
+        f"{place['name']}, {place.get('country', 'Unknown country')} -- "
+        f"latitude {place['latitude']}, longitude {place['longitude']}, "
+        f"population {place.get('population', 'unknown')}"
+    )
+
+
+
+
+@mcp.tool()
+def write_file(filename: str, content: str) -> str:
+    """Write text content to a file inside the sandboxed agent files
+    directory.
+
+
+    Args:
+        filename: Name of the file to write (no folders, no "..").
+        content: The text content to write into the file.
+    """
+    path = safe_path(filename)
+    with open(path, "w") as f:
+        f.write(content)
+    return f"Wrote {len(content)} characters to {filename}"
+
+
+
+
+@mcp.tool()
+def read_file(filename: str) -> str:
+    """Read the text content of a file inside the sandboxed agent files
+    directory.
+
+
+    Args:
+        filename: Name of the file to read (no folders, no "..").
+    """
+    path = safe_path(filename)
+    if not os.path.exists(path):
+        return f"No such file: {filename}"
+    with open(path, "r") as f:
+        return f.read()
+
+
+
+
+@mcp.tool()
+def word_count(text: str) -> int:
+    """Count the number of words in a piece of text."""
+    return len(text.split())
+
+
+
+
+@mcp.tool()
+def delete_file(filename: str) -> str:
+    """Delete a file inside the sandboxed files directory.
+
+
+    Args:
+        filename: Name of the file to delete (no folders, no "..").
+    """
+    path = safe_path(filename)
+    if not os.path.exists(path):
+        return f"No such file to delete: {filename}"
+    os.remove(path)
+    return f"Deleted file: {filename}"
+
+
+
+
+def mcp_tools_to_anthropic_format(tools_result):
+    """Converts what the MCP server told us about its own tools into the
+    exact shape Claude's API expects."""
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+        for tool in tools_result.tools
+    ]
+
+
+
+
+async def run_agent(task, client, anthropic_tools, max_tokens=500, max_steps=6):
+    """THE NEW IDEA. Instead of one question -> one round of tools ->
+    one answer (lessons 49/51), this keeps looping: ask Claude, run
+    WHATEVER tools it asks for (could be more than one), feed the
+    results back, ask again -- until Claude stops asking for tools, or
+    we hit max_steps as a safety ceiling.
+
+
+    Returns (final_answer, steps_taken) where steps_taken is a list of
+    every tool call the agent actually made, in order -- useful for
+    seeing exactly how it broke the task down.
+    """
+    messages = [{"role": "user", "content": task}]
+    steps_taken = []
+
+
+    for _ in range(max_steps):
+        body = {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": max_tokens,
+            "tools": anthropic_tools,
+            "messages": messages,
+        }
+        response = requests.post(anthropic_url, headers=headers, json=body)
+        data = response.json()
+
+
+        messages.append({"role": "assistant", "content": data["content"]})
+
+
+        if data.get("stop_reason") != "tool_use":
+            final_text = next(
+                (b["text"] for b in data["content"] if b["type"] == "text"), ""
+            )
+            return final_text, steps_taken
+
+
+        # A single turn can contain MORE THAN ONE tool_use block -- run
+        # all of them, and send back ALL their results together.
+        tool_use_blocks = [b for b in data["content"] if b["type"] == "tool_use"]
+        tool_result_content = []
+
+
+        for block in tool_use_blocks:
+            mcp_result = await client.call_tool(block["name"], block["input"])
+            result_text = mcp_result.content[0].text
+            steps_taken.append({
+                "tool": block["name"],
+                "input": block["input"],
+                "result": result_text,
+            })
+            tool_result_content.append({
+                "type": "tool_result",
+                "tool_use_id": block["id"],
+                "content": result_text,
+            })
+
+
+        messages.append({"role": "user", "content": tool_result_content})
+
+
+    return "Agent stopped: hit max_steps without finishing.", steps_taken
+
+
+
+
+async def main():
+    async with Client(mcp) as client:
+        tools_result = await client.list_tools()
+        anthropic_tools = mcp_tools_to_anthropic_format(tools_result)
+        print(f"--- Agent has {len(anthropic_tools)} tools available ---")
+        for t in anthropic_tools:
+            print(f"  - {t['name']}")
+
+
+        task = (
+           "Look up city information for Dallas using get_city_info. "
+           "Write a file called dallas_report.txt containing that information. "
+           "Read the file back. "
+           "Then use word_count to tell me how many words are in the report."
+        )
+
+
+
+
+        final_answer, steps_taken = await run_agent(task, client, anthropic_tools, max_steps=2)
+
+
+        print(f"\n--- Agent took {len(steps_taken)} tool-call step(s) ---")
+        for i, step in enumerate(steps_taken, 1):
+            print(f"  Step {i}: {step['tool']}({step['input']}) -> {step['result']}")
+
+
+        print("\nFinal agent answer:")
+        print(final_answer)
+
+
+
+
+asyncio.run(main())
+
+
+# --- YOUR TURN ---
+# 1. Add a THIRD kind of tool to the server above (e.g. a word_count()
+#    tool like lesson 48's, or a delete_file() tool like lesson 50's).
+#    Design a new task string that REQUIRES all three tools to chain
+#    together (e.g. "look up a city, write a report, then tell me how
+#    many words are in it"). Run it through run_agent() and print
+#    steps_taken to see the full chain the agent chose.
+#
+# 2. Print the full steps_taken list for the ORIGINAL Nairobi/Tokyo task
+#    above (it's already returned by run_agent() -- just look at what's
+#    already printing). Confirm the ORDER makes sense: both lookups
+#    before the write, the write before the read-back.
+#
+# 3. Temporarily set max_steps=2 in your call to run_agent() for a task
+#    that genuinely needs 3+ steps. Run it and confirm you get the
+#    "Agent stopped: hit max_steps" safety message back -- not a crash,
+#    not an infinite loop. Then set max_steps back to something
+#    reasonable (6 or so).
+#
+# 4. In your own words: why would lesson 51's ask_with_mcp_tools() (one
+#    question -> at most one round of tools -> one answer) fail on the
+#    city_report task above? What specifically does run_agent()'s loop
+#    add that makes multi-step tasks possible?
+ 
+
+53
+
+"""
+LESSON 53 CAPSTONE: An agent that reads and writes a real database
+via MCP tools
+
+
+This is the last lesson of Phase 7, and it pulls together THREE things
+you've built separately: SQL (Phase 4), MCP tools (lessons 48-51), and
+the multi-step agent loop (lesson 52). The task: let an LLM manage a
+real SQLite database through a small set of narrow, safe tools.
+
+
+--- The important new idea: NARROW TOOLS, NEVER RAW SQL ---
+The tempting-but-dangerous design here would be one tool:
+    run_sql(query: str) -> str
+...that just executes whatever SQL string the model hands it. DON'T
+do this. It's the database equivalent of lesson 50's "no '..' allowed"
+problem, except worse -- a confused or manipulated model could run
+`DROP TABLE people` or `DELETE FROM people` with no WHERE clause, and
+nothing would stop it.
+
+
+Instead, this lesson exposes a small set of PURPOSE-BUILT tools, each
+doing exactly one safe, parameterized thing:
+    add_person(name, age)      -- one INSERT, parameterized
+    list_people()               -- one SELECT *
+    find_person(name)           -- one SELECT ... WHERE name = ?
+    delete_person(person_id)    -- one DELETE ... WHERE id = ? (by ID,
+                                    not by name -- see below)
+
+
+Every query uses a `?` placeholder with parameters passed separately
+(never an f-string building SQL out of raw model input). This is the
+same category of rule as Phase 4's "never use string formatting to
+build a query" -- it's what stops SQL injection, whether the input
+comes from a web form or, like here, from an LLM.
+
+
+--- Why delete_person() takes an ID, not a name ---
+Your people.db-style table has duplicate names (multiple "Sol" rows).
+A `delete_person(name)` tool would delete EVERY row matching that name
+in one call -- a single wrong guess wipes out data you didn't mean to
+touch. Requiring an ID instead forces the agent to look the row up
+first (via list_people() or find_person()) and read the real ID out of
+the result before it can delete anything -- the tool makes the unsafe
+shortcut impossible, not just discouraged.
+
+
+--- Reusing lesson 52's run_agent() ---
+The demo task below needs multiple chained steps where a LATER step
+depends on data returned by an EARLIER one (find the row, read its ID
+out of the text, delete that specific ID) -- exactly what lesson 52's
+agent loop was built for. That loop is copied in unchanged.
+
+
+This lesson uses its own small database file (lesson53_people.db,
+created next to this script, seeded with a few duplicate-name rows on
+first run) so you can experiment freely without touching your original
+people.db from the SQL phase.
+"""
+
+
+import os
+import asyncio
+import sqlite3
+from dotenv import load_dotenv
+import requests
+from mcp.server import MCPServer
+from mcp import Client
+
+
+load_dotenv(override=True)
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+
+anthropic_url = "https://api.anthropic.com/v1/messages"
+headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+mcp = MCPServer("db-agent-demo")
+
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lesson53_people.db")
+
+
+
+
+def get_connection():
+    return sqlite3.connect(DB_PATH)
+
+
+
+
+def seed_database_if_new():
+    """Creates the table and a few starter rows (with a deliberate
+    duplicate name) the FIRST time this script runs. Leaves the data
+    alone on every run after that, so your changes actually persist."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS people (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            age INTEGER NOT NULL
+        )
+    """)
+    cur.execute("SELECT COUNT(*) FROM people")
+    if cur.fetchone()[0] == 0:
+        cur.executemany(
+            "INSERT INTO people (name, age) VALUES (?, ?)",
+            [("Sol", 67), ("Sol", 67), ("Maria", 34), ("Devon", 41)]
+        )    
+    conn.commit()
+    conn.close()
+
+
+
+
+@mcp.tool()
+def add_person(name: str, age: int) -> str:
+    """Add a new person to the database.
+
+
+    Args:
+        name: The person's name.
+        age: The person's age.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO people (name, age) VALUES (?, ?)", (name, age))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return f"Added {name} (age {age}) with id {new_id}"
+
+
+
+
+@mcp.tool()
+def list_people() -> str:
+    """List every person currently in the database, with their IDs."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, age FROM people ORDER BY id")
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        return "No people in the database."
+    return "; ".join(f"id {r[0]}: {r[1]}, age {r[2]}" for r in rows)
+
+
+
+
+@mcp.tool()
+def find_person(name: str) -> str:
+    """Find all people in the database matching a given name, with
+    their IDs.
+
+
+    Args:
+        name: The name to search for (exact match).
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, age FROM people WHERE name = ?", (name,))
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        return f"No one named '{name}' found."
+    return "; ".join(f"id {r[0]}: {r[1]}, age {r[2]}" for r in rows)
+
+
+
+
+@mcp.tool()
+def delete_person(person_id: int) -> str:
+    """Delete ONE person from the database by their exact ID (not by
+    name -- names can be duplicated, IDs never are).
+
+
+    Args:
+        person_id: The exact id of the row to delete (get this from
+            list_people() or find_person() first).
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM people WHERE id = ?", (person_id,))
+    row = cur.fetchone()
+    if row is None:
+        conn.close()
+        return f"No person with id {person_id} found."
+    cur.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    conn.commit()
+    conn.close()
+    return f"Deleted id {person_id} ({row[0]})"
+
+
+
+
+def mcp_tools_to_anthropic_format(tools_result):
+    """Converts what the MCP server told us about its own tools into the
+    exact shape Claude's API expects."""
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+        for tool in tools_result.tools
+    ]
+
+
+
+
+async def run_agent(task, client, anthropic_tools, max_tokens=500, max_steps=6):
+    """Lesson 52's agent loop, unchanged: ask Claude, run whatever
+    tools it asks for (possibly several in one turn), feed the results
+    back, repeat -- until Claude stops asking for tools or we hit
+    max_steps."""
+    messages = [{"role": "user", "content": task}]
+    steps_taken = []
+
+
+    for _ in range(max_steps):
+        body = {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": max_tokens,
+            "tools": anthropic_tools,
+            "messages": messages,
+        }
+        response = requests.post(anthropic_url, headers=headers, json=body)
+        data = response.json()
+
+
+        messages.append({"role": "assistant", "content": data["content"]})
+
+
+        if data.get("stop_reason") != "tool_use":
+            final_text = next(
+                (b["text"] for b in data["content"] if b["type"] == "text"), ""
+            )
+            return final_text, steps_taken
+
+
+        tool_use_blocks = [b for b in data["content"] if b["type"] == "tool_use"]
+        tool_result_content = []
+
+
+        for block in tool_use_blocks:
+            mcp_result = await client.call_tool(block["name"], block["input"])
+            result_text = mcp_result.content[0].text
+            steps_taken.append({
+                "tool": block["name"],
+                "input": block["input"],
+                "result": result_text,
+            })
+            tool_result_content.append({
+                "type": "tool_result",
+                "tool_use_id": block["id"],
+                "content": result_text,
+            })
+
+
+        messages.append({"role": "user", "content": tool_result_content})
+
+
+    return "Agent stopped: hit max_steps without finishing.", steps_taken
+
+
+
+
+async def main():
+    seed_database_if_new()
+
+
+    async with Client(mcp) as client:
+        tools_result = await client.list_tools()
+        anthropic_tools = mcp_tools_to_anthropic_format(tools_result)
+        print(f"--- Agent has {len(anthropic_tools)} tools available ---")
+        for t in anthropic_tools:
+            print(f"  - {t['name']}")
+
+
+        task = (
+               "Find the person named 'Devon' in the database and delete that specific id. "
+               "After deleting Devon, add three new people to the database: "
+               "Sasha, age 40 "
+               "NiNi, age 23 "
+               "Tonya, age 27 "
+               "Once the updates are complete, list every person currently in the database. "
+               "After producing the full list, calculate and report the average age of all people in the database."
+        )
+
+
+        final_answer, steps_taken = await run_agent(task, client, anthropic_tools)
+
+
+        print(f"\n--- Agent took {len(steps_taken)} tool-call step(s) ---")
+        for i, step in enumerate(steps_taken, 1):
+            print(f"  Step {i}: {step['tool']}({step['input']}) -> {step['result']}")
+
+
+        print("\nFinal agent answer:")
+        print(final_answer)
+
+
+
+
+asyncio.run(main())
+
+
+# --- YOUR TURN ---
+# 1. Run this file. Confirm from steps_taken that the agent: added
+#    Aisha, looked up 'Sol' (finding at least 2 duplicates), deleted
+#    ONE of them by its real id (not both), and listed the final state
+#    showing Aisha present and exactly one fewer 'Sol' than before.
+#
+# 2. Ask the agent a DIFFERENT task of your own that requires at least
+#    2 of the 4 tools chained together (e.g. "add three new people,
+#    then list everyone and tell me the average age" -- note there's no
+#    average_age() tool, so watch what the agent does: does it decline,
+#    or does it compute the average itself from list_people()'s text?).
+#
+# 3. Run the file a SECOND time without deleting lesson53_people.db.
+#    Confirm the data persisted from your first run (Aisha is still
+#    there, seeded rows aren't re-inserted) -- this is real, durable
+#    storage, not something that resets each run like lesson 50's
+#    sandboxed files would if you deleted them.
+#
+# 4. In your own words: why does delete_person() require an id instead
+#    of a name? What could go wrong with a name-based delete tool on a
+#    table that allows duplicate names?
+
+
+
+
+lesson 54
+
+import os
+import glob
+import time
+import requests
+import chromadb
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+
+load_dotenv(override=True)
+voyage_api_key = os.getenv("VOYAGE_API_KEY")
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+embed_url = "https://api.voyageai.com/v1/embeddings"
+rerank_url = "https://api.voyageai.com/v1/rerank"
+anthropic_url = "https://api.anthropic.com/v1/messages"
+
+voyage_headers = {
+    "Authorization": f"Bearer {voyage_api_key}",
+    "Content-Type": "application/json",
+}
+
+anthropic_headers = {
+    "x-api-key": anthropic_api_key,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+}
+
+
+def get_embedding(text, input_type="document"):
+    """Same single-text helper from lessons 33/34/39-46. Still used for
+    QUERIES below (there's only ever one query per question -- no
+    batching needed there)."""
+    body = {
+        "input": [text],
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)  # free-tier accounts are capped at 3 requests/minute
+    response = requests.post(embed_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"][0]["embedding"]
+
+
+def get_embeddings_batch(texts, input_type="document"):
+    """THE NEW IDEA. Same endpoint as get_embedding(), but `input` is the
+    WHOLE LIST of texts at once -- Voyage embeds all of them in one
+    request and returns one embedding per input, in the same order.
+    One sleep(21) per CALL, not per chunk."""
+    body = {
+        "input": texts,
+        "model": "voyage-4-lite",
+        "input_type": input_type,
+    }
+    time.sleep(21)
+    response = requests.post(embed_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return [item["embedding"] for item in data["data"]]
+
+
+def chunk_by_size(text, chunk_size, overlap=0):
+    """Same helper from lesson 38."""
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+def load_py_master_lessons():
+    """Loads every lesson_*.py file sitting in this same folder as a
+    document, keyed by filename. This is YOUR actual curriculum -- real
+    content, not toy demo text."""
+    folder = os.path.dirname(os.path.abspath(__file__))
+    documents = {}
+    for path in sorted(glob.glob(os.path.join(folder, "lesson_*.py"))):
+        filename = os.path.basename(path)
+        with open(path, "r", encoding="utf-8") as f:
+            documents[filename] = f.read()
+    return documents
+
+
+def build_knowledge_base(documents, collection_name, chunk_size=500, overlap=50):
+    """Same shape as lesson 46's version, but each document's chunks are
+    now embedded with ONE batched call (get_embeddings_batch) instead of
+    one call per chunk. This is the expensive, one-time setup step -- 
+    called ONCE below, at server startup, not per-request."""
+    client = chromadb.Client()
+    collection = client.create_collection(name=collection_name)
+
+    for source_name, text in documents.items():
+        chunks = chunk_by_size(text, chunk_size=chunk_size, overlap=overlap)
+        embeddings = get_embeddings_batch(chunks)  # ONE call for this whole file
+        ids = [f"{source_name}_{i}" for i in range(len(chunks))]
+        metadatas = [{"source": source_name, "chunk_index": i} for i in range(len(chunks))]
+        collection.add(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
+        print(f"  indexed {source_name}: {len(chunks)} chunks")
+
+    return collection
+
+
+def retrieve_with_metadata(query, collection, k=6):
+    """Same helper from lesson 46."""
+    query_embedding = get_embedding(query, input_type="query")
+    results = collection.query(query_embeddings=[query_embedding], n_results=k)
+    return list(zip(results["documents"][0], results["metadatas"][0]))
+
+
+def rerank(query, documents, top_k=3, model="rerank-2.5-lite"):
+    """Same helper from lesson 43."""
+    body = {
+        "query": query,
+        "documents": documents,
+        "model": model,
+        "top_k": top_k,
+        "return_documents": True,
+    }
+    time.sleep(21)  # same free-tier rate limit applies to this endpoint
+    response = requests.post(rerank_url, headers=voyage_headers, json=body)
+    data = response.json()
+    return data["data"]
+
+
+def ask_claude(user_message, system_prompt=None, max_tokens=300):
+    """Same ask() pattern from lessons 31/32/35-37/44-46."""
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": user_message}],
+    }
+    if system_prompt:
+        body["system"] = system_prompt
+    response = requests.post(anthropic_url, headers=anthropic_headers, json=body)
+    data = response.json()
+    return data["content"][0]["text"]
+
+
+def ask_knowledge_base(question, collection, shortlist_k=6, final_k=3):
+    """Same full pipeline from lesson 46: retrieve WITH metadata -> rerank
+    -> recover each surviving chunk's source -> generate a cited answer."""
+    shortlist = retrieve_with_metadata(question, collection, k=shortlist_k)
+    shortlist_texts = [text for text, meta in shortlist]
+    text_to_source = {text: meta["source"] for text, meta in shortlist}
+
+    reranked = rerank(question, shortlist_texts, top_k=final_k)
+    context_chunks = [r["document"] for r in reranked]
+    citations = [(text_to_source[chunk], chunk) for chunk in context_chunks]
+
+    context = "\n".join(f"[{source}] {chunk}" for source, chunk in citations)
+    prompt = (
+        f"Answer the question using ONLY the context below, which is made "
+        f"of excerpts from Python/AI lesson files. Each context line is "
+        f"tagged with its source filename in brackets -- mention which "
+        f"lesson file(s) you used in your answer. If the context doesn't "
+        f"contain the answer, say so clearly.\n\n"
+        f"Context:\n{context}\n\nQuestion: {question}"
+    )
+    answer = ask_claude(prompt, max_tokens=250)
+    return answer, citations
+
+
+# --- Build the knowledge base from YOUR real lesson files ---
+documents = load_py_master_lessons()
+print(
+    f"--- Building knowledge base from {len(documents)} lesson files "
+    f"(one batched embedding call per file, ~21 sec each) ---"
+)
+collection = build_knowledge_base(documents, "py_master_tutor")
+print(
+    f"--- Knowledge base ready: {collection.count()} chunks across {len(documents)} lesson files ---"
+)
+
+
+app = Flask(__name__)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    """A quick sanity-check route: is the server up, and did the
+    knowledge base actually build?"""
+    return jsonify({"status": "ok", "chunks": collection.count(), "documents": len(documents)})
+
+
+@app.route("/ask", methods=["POST"])
+def ask():
+    """The real endpoint. Expects JSON: {"question": "..."}.
+    Returns JSON: {"answer": "...", "citations": [{"source": ..., "chunk": ...}, ...]}.
+    """
+    data = request.get_json()
+    if not data or "question" not in data:
+        return jsonify({"error": "Missing 'question' in request body"}), 400
+
+    question = data["question"]
+    answer, citations = ask_knowledge_base(question, collection)
+
+    return jsonify({
+        "answer": answer,
+        "citations": [{"source": source, "chunk": chunk} for source, chunk in citations],
+    })
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
