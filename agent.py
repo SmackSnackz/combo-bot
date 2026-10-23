@@ -31,6 +31,8 @@ TOOLS = [
             },
             "required": ["table_name"],
         }
+
+
     },
     {
         "name": "run_query",
@@ -62,6 +64,8 @@ SYSTEM_PROMPT = (
     "Before writing a query, call list_tables and describe_tables to see the real structure. "
     "If a query returns an error, read the error and try again. "
     "Answer only from tool results, and say plainly if the data does not contain the answer. "
+    "Every question is about the user's own notes and database, never about the world in general. "
+    "Never ask permission to use a tool. Just use the tools and answer. "
     "You can not change data."
 )
 
@@ -93,11 +97,9 @@ def run_agent(task, max_tokens=1024, max_steps=6):
         
     return "Agent stopped: hit max_steps without finishing.", steps_taken
 
-
 if __name__ == "__main__":
-    answer, steps = run_agent("Who lives in Dallas?")
+    answer, steps = run_agent("What do my notes say about cosine similarity, and which people live in Dallas?")
     print(answer)
-    print(steps)
     print("\nSteps taken:")
     for s in steps:
         print(" -", s["tool"], s["input"])
