@@ -7,18 +7,18 @@ from db_tools import list_tables, describe_tables, run_query
 TOOLS = [
     {
             "name": "search_documents",
-            "description": "Search through the documents of docs for answers.",
+            "description": "Search the user's notes for concepts and explanations. Not for facts about people, orders, or wallets.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Searh docs for answers."}
+                    "query": {"type": "string", "description": "Search docs for answers."}
                 },
                 "required": ["query"],
             }
     }, 
     {
        "name": "list_tables",
-       "description": "List the names of all tables in the database.",
+       "description": "List the tables in the database. The database holds facts about people(name, age, city), their orders and their wallets.",
        "input_schema": {"type": "object", "properties": {}},
     },
     {
@@ -36,7 +36,7 @@ TOOLS = [
     },
     {
         "name": "run_query",
-        "description": "Run a read only SQL SELECT query and return up to 50 rows as JSON.",
+        "description": "Run a read only SQL SELECT query and return up to 50 rows as JSON. Use for facts about people, orders, and wallets, and for counting, totals, and filtering",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -61,10 +61,12 @@ SYSTEM_PROMPT = (
     "Use the database tools for questions about people, orders, wallets, or any counting, totals, or filtering. "
     "Inspect the schema before writing SQL. Never guess names, table names, or column names. "
     "If a tool returns nothing relevant, say so plainly. Never use outside knowledge. "
+    "If a question mixes concepts and data about people, use search_documents for the concepts and the database tools for the people, then answer both. "
     "Before writing a query, call list_tables and describe_tables to see the real structure. "
     "If a query returns an error, read the error and try again. "
     "Answer only from tool results, and say plainly if the data does not contain the answer. "
     "Every question is about the user's own notes and database, never about the world in general. "
+    "When you use search_documents, always say which file the answer came from, like (notes4.txt). "
     "Never ask permission to use a tool. Just use the tools and answer. "
     "You can not change data."
 )
