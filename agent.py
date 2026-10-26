@@ -100,7 +100,7 @@ def run_agent(task, max_tokens=1024, max_steps=6):
     return "Agent stopped: hit max_steps without finishing.", steps_taken
 
 if __name__ == "__main__":
-    answer, steps = run_agent("What do my notes say about cosine similarity, and which people live in Dallas?")
+    answer, steps = run_agent("Who was the founder of Ford Motor company?")
     print(answer)
     print("\nSteps taken:")
     for s in steps:
