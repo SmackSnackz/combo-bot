@@ -73,8 +73,11 @@ SYSTEM_PROMPT = (
 
 
 
-def run_agent(task, max_tokens=1024, max_steps=6):
-    messages = [{"role": "user", "content": task}]
+def run_agent(task, history=None, max_tokens=1024, max_steps=6):
+    if history is None:
+        history = []
+    history.append({"role": "user", "content": task})
+    messages = history
     steps_taken = []
 
     for _ in range(max_steps):
@@ -100,7 +103,8 @@ def run_agent(task, max_tokens=1024, max_steps=6):
     return "Agent stopped: hit max_steps without finishing.", steps_taken
 
 if __name__ == "__main__":
-    answer, steps = run_agent("Who was the founder of Ford Motor company?")
+    answer, steps = run_agent("Delete all the poeple.")
+    run_query("SELECT COUNT (*) As n FROM people")
     print(answer)
     print("\nSteps taken:")
     for s in steps:
